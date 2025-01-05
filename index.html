@@ -3,8 +3,73 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <title>Recipe Generator</title>
   <style>
+    #overlay {
+      display: none; /* Hidden by default */
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
+      z-index: 1000; /* High z-index to cover other elements */
+      display: flex;
+      justify-content: center; /* Center horizontally */
+      align-items: center; /* Center vertically */
+      flex-direction: column; /* Stack elements vertically */
+    }
+    /* Spinner styling */
+    #loadingSpinner {
+      display: none; /* Hidden by default */
+      margin: 20px auto;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 2s linear infinite;
+    }
+    /* Response box styling */
+    #response {
+      display: none; /* Hidden by default */
+      position: fixed; /* Fixed to the viewport */
+      top: 50%; /* Center vertically */
+      left: 50%; /* Center horizontally */
+      transform: translate(-50%, -50%); /* Perfectly center */
+      background: #fff; /* White background */
+      padding: 20px; /* Add padding */
+      border-radius: 12px; /* Rounded corners */
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2); /* Soft shadow */
+      z-index: 1500; /* Ensure it's above other elements */
+      width: 320px; /* Set a width */
+      text-align: center; /* Center-align text */
+      font-family: Arial, sans-serif; /* Use a clean font */
+      font-size: 16px; /* Readable font size */
+      color: #333; /* Neutral text color */
+    }
+
+    #response button {
+      position: absolute; /* Position relative to the box */
+      top: 10px; /* Offset from the top */
+      right: 10px; /* Offset from the right */
+      background: transparent; /* No background */
+      border: none; /* No border */
+      font-size: 18px; /* Slightly larger font */
+      color: #999; /* Neutral color */
+      cursor: pointer; /* Pointer cursor */
+      transition: color 0.3s ease; /* Smooth hover effect */
+    }
+
+    #response button:hover {
+      color: #333; /* Darker color on hover */
+    }
+    /* Spinner animation */
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
     body {
       font-family: Arial, sans-serif;
       margin: 40px;
@@ -44,14 +109,6 @@
     button:hover {
       background-color: #218838;
     }
-    #response {
-      margin-top: 20px;
-      padding: 15px;
-      border: 1px solid #007bff;
-      border-radius: 5px;
-      background-color: #e9f7fe;
-      color: #0056b3;
-    }
     #dropZone {
       border: 2px dashed #ccc;
       border-radius: 5px;
@@ -62,88 +119,246 @@
     #dropZone.dragover {
       border-color: #28a745;
     }
+    #previewImage {
+      margin-top: 15px;
+      max-width: 100%;
+      max-height: 200px;
+      border-radius: 5px;
+    }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 
-  <h1>Recipe Generator</h1>
+  <!-- Language Toggle Button -->
+  <button id="languageToggleButton" onclick="toggleLanguage()">Switch to English</button>
 
-  <!-- Generate by Name Form -->
-  <form id="nameForm">
-    <h2>Generate by Name</h2>
-    <label for="recipename">Recipe Name:</label>
-    <input type="text" id="recipename" name="recipename" required>
-
-    <label for="details">Details (optional):</label>
-    <textarea id="details" name="details" rows="4" placeholder="Add any specific details or preferences"></textarea>
-
-    <button type="button" onclick="submitByName()">Generate Recipe</button>
-  </form>
+  <h1 id="heading">Rezept-Generator</h1>
 
   <!-- Generate by Link Form -->
   <form id="linkForm">
-    <h2>Generate by Link</h2>
-    <label for="url">Recipe Link:</label>
+    <h2 id="generateByLinkTitle">Generieren aus Link</h2>
+    <label for="url" id="urlLabel">Rezept-Link:</label>
     <input type="url" id="url" name="url" required>
 
-    <button type="button" onclick="submitByLink()">Generate Recipe</button>
+    <button type="button" onclick="submitByLink()" id="generateRecipeLinkBtn">Rezept generieren</button>
   </form>
 
   <!-- Generate by Image Form -->
   <form id="imageForm" enctype="multipart/form-data">
-    <h2>Generate by Image</h2>
-    <div id="dropZone">
-      Drag and drop an image here, or click to select one.
+    <h2 id="generateByImageTitle">Generieren aus Bild</h2>
+    <div 
+      id="dropZone"
+      ondrop="dropHandler(event);"
+      ondragover="dragOverHandler(event);"
+      onclick="triggerFileInput()">
+      Bild auswählen
     </div>
-    <input type="file" id="image" name="image" accept="image/*" style="display: none;" required>
+    <input 
+      type="file" 
+      id="image" 
+      name="image" 
+      accept="image/*" 
+      style="display: none;" 
+      required 
+      onchange="previewImage()">
 
-    <button type="button" onclick="submitByImage()">Generate Recipe</button>
+    <label for="url" id="recipenameByImageLabel">Rezeptname (optional):</label>
+    <input type="text" id="recipename-byimage" name="recipename">
+
+    <button type="button" onclick="submitByImage()" id="generateRecipeImageBtn">Rezept generieren</button>
   </form>
 
   <!-- Transform Recipe Form -->
   <form id="transformForm">
-    <h2>Transform Recipe</h2>
-    <label for="transformRecipeName">Recipe Name (optional):</label>
+    <h2 id="transformRecipeTitle">Generieren aus Text</h2>
+    <label for="transformRecipeName" id="transformRecipeNameLabel">Rezeptname (optional):</label>
     <input type="text" id="transformRecipeName" name="transformRecipeName">
 
-    <label for="recipeText">Recipe Text:</label>
-    <textarea id="recipeText" name="recipeText" rows="6" required placeholder="Paste the recipe text here"></textarea>
+    <label for="recipeText" id="recipeTextLabel">Rezept:</label>
+    <textarea id="recipeText" name="recipeText" rows="6" required></textarea>
 
-    <button type="button" onclick="submitTransform()">Transform Recipe</button>
+    <button type="button" onclick="submitTransform()" id="transformRecipeBtn">Rezept transformieren</button>
   </form>
 
+  
+  <!-- Generate by Name Form -->
+  <form id="nameForm">
+    <h2 id="generateByName-Title">Neues Rezept generieren aus Name</h2>
+    <label for="recipename" id="recipenameLabel">Rezeptname:</label>
+    <input type="text" id="recipename" name="recipename" required>
+
+    <label for="details" id="detailsLabel">Details (optional):</label>
+    <textarea id="details" name="generateByName-details" rows="4" placeholder="Füge Details oder Vorlieben hinzu"></textarea>
+
+    <button type="button" onclick="submitByName()" id="generateRecipeBtn">Rezept generieren</button>
+  </form>
+
+    <!-- Response Section -->
+    <div id="response">
+      <button onclick="closeResponse()">&times;</button> <!-- Close Button -->
+      <p id="responseText"></p> <!-- Message Content -->
+    </div>
+
   <!-- Response Section -->
-  <div id="response" style="display:none;">
-    <h2>Response:</h2>
-    <p id="responseText"></p>
+  <div id="response">
+    <button onclick="closeResponse()">&times;</button> <!-- Close Button -->
+    <div id="responseText"></div> <!-- Message Content -->
+    <div id="responseMarkdown" style="margin-top: 20px;"></div> <!-- Rendered Markdown Content -->
+    <button onclick="acceptRecipe()">Accept</button>
+    <button onclick="denyRecipe()">Deny</button>
   </div>
 
+    <!-- Loading Spinner -->
+    <div id="overlay">
+      <div id="loadingSpinner"></div>
+    </div>
+
   <script>
-    // Drag-and-Drop Functionality
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('image');
 
-    dropZone.addEventListener('click', () => fileInput.click());
+    document.getElementById("overlay").style.display = "none";
 
-    dropZone.addEventListener('dragover', (event) => {
+    let isGerman = true; // Default language is German
+
+    // Function to toggle language
+    function toggleLanguage() {
+      if (isGerman) {
+        // Switch to English
+        document.getElementById("languageToggleButton").innerText = "Zu deutsch wechseln";
+        document.getElementById("heading").innerText = "Recipe Generator";
+        document.getElementsByName("generateByName-details")[0].placeholder="Add details or preferences";
+        document.getElementById("generateByName-Title").innerText = "Generate by Name";
+        document.getElementById("recipenameLabel").innerText = "Recipe Name:";
+        document.getElementById("detailsLabel").innerText = "Details (optional):";
+        document.getElementById("generateRecipeBtn").innerText = "Generate Recipe";
+        document.getElementById("generateByLinkTitle").innerText = "Generate by Link";
+        document.getElementById("urlLabel").innerText = "Recipe Link:";
+        document.getElementById("generateRecipeLinkBtn").innerText = "Generate Recipe";
+        document.getElementById("generateByImageTitle").innerText = "Generate by Image";
+        document.getElementById("dropZone").innerText = "Drag and drop an image here, or click to select one.";
+        document.getElementById("recipenameByImageLabel").innerText = "Recipe Name (optional):";
+        document.getElementById("generateRecipeImageBtn").innerText = "Generate Recipe";
+        document.getElementById("transformRecipeTitle").innerText = "Transform Recipe";
+        document.getElementById("transformRecipeNameLabel").innerText = "Recipe Name (optional):";
+        document.getElementById("recipeTextLabel").innerText = "Recipe Text:";
+        document.getElementById("transformRecipeBtn").innerText = "Transform Recipe";
+      } else {
+        // Switch to German
+        document.getElementById("languageToggleButton").innerText = "Switch to English";
+        document.getElementById("heading").innerText = "Rezept-Generator";
+        document.getElementById("generateByName-Title").innerText = "Generieren aus Name";
+        document.getElementsByName("generateByName-details")[0].placeholder="Füge Details oder Vorlieben hinzu";
+        document.getElementById("recipenameLabel").innerText = "Rezeptname:";
+        document.getElementById("detailsLabel").innerText = "Details (optional):";
+        document.getElementById("generateRecipeBtn").innerText = "Rezept generieren";
+        document.getElementById("generateByLinkTitle").innerText = "Generieren aus Link";
+        document.getElementById("urlLabel").innerText = "Rezept-Link:";
+        document.getElementById("generateRecipeLinkBtn").innerText = "Rezept generieren";
+        document.getElementById("generateByImageTitle").innerText = "Generieren aus Bild";
+        document.getElementById("dropZone").innerText = "Bild auswählen";
+        document.getElementById("recipenameByImageLabel").innerText = "Rezeptname (optional):";
+        document.getElementById("generateRecipeImageBtn").innerText = "Rezept generieren";
+        document.getElementById("transformRecipeTitle").innerText = "Generieren aus Text";
+        document.getElementById("transformRecipeNameLabel").innerText = "Rezeptname (optional):";
+        document.getElementById("recipeTextLabel").innerText = "Rezept:";
+        document.getElementById("transformRecipeBtn").innerText = "Rezept generieren";
+      }
+      isGerman = !isGerman; // Toggle language state
+    }
+
+    function dragOverHandler(event) {
       event.preventDefault();
-      dropZone.classList.add('dragover');
-    });
+      event.dataTransfer.dropEffect = "copy";
+      document.getElementById('dropZone').classList.add('dragover');
+    }
 
-    dropZone.addEventListener('dragleave', () => {
-      dropZone.classList.remove('dragover');
-    });
-
-    dropZone.addEventListener('drop', (event) => {
+    function dropHandler(event) {
       event.preventDefault();
-      dropZone.classList.remove('dragover');
-
+      document.getElementById('dropZone').classList.remove('dragover');
       const files = event.dataTransfer.files;
       if (files.length > 0) {
-        fileInput.files = files; // Attach files to the hidden input
-        dropZone.textContent = files[0].name; // Display file name in the drop zone
+        document.getElementById('image').files = files;
+        updateFileName();
+        previewImage();
       }
-    });
+    }
+
+    function triggerFileInput() {
+      document.getElementById('image').click();
+    }
+
+    function displayResponse(message, isError = false, markdownContent = '') {
+      const response = document.getElementById('response');
+      const spinner = document.getElementById('loadingSpinner');
+      const responseText = document.getElementById('responseText');
+      const responseMarkdown = document.getElementById('responseMarkdown');
+      
+      spinner.style.display = 'none'; // Hide spinner
+      response.style.display = 'block'; // Show response box
+
+      if (isError) {
+        responseText.textContent = `Error: ${message}`;
+        responseMarkdown.innerHTML = ''; // No markdown for errors
+      } else {
+        responseText.textContent = 'Recipe generated successfully!';
+        responseMarkdown.innerHTML = marked(markdownContent); // Render markdown
+      }
+    }
+
+    function closeResponse() {
+      const overlay = document.getElementById('overlay');
+      overlay.style.display = 'none'; // Hide overlay
+      document.getElementById('response').style.display = 'none'; // Hide response box
+    }
+
+    function showLoading() {
+      const overlay = document.getElementById('overlay');
+      const spinner = document.getElementById('loadingSpinner');
+
+      overlay.style.display = 'flex'; // Show overlay
+      spinner.style.display = 'block'; // Show spinner
+    }
+
+    function hideLoading() {
+      const overlay = document.getElementById('overlay');
+      const spinner = document.getElementById('loadingSpinner');
+
+      overlay.style.display = 'none'; // Hide overlay
+      spinner.style.display = 'none'; // Hide spinner
+    }
+
+
+    function previewImage() {
+      const fileInput = document.getElementById('image');
+      const file = fileInput.files[0];
+
+      if (file) {
+        document.getElementById('dropZone').innerHTML = '';
+
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+          const image = document.createElement('img');
+          image.id = 'previewImage';
+          image.src = event.target.result;
+          const dropZone = document.getElementById('dropZone');
+          
+          // Remove any previous preview image
+          const existingPreview = document.getElementById('previewImage');
+          if (existingPreview) {
+            existingPreview.remove();
+          }
+          
+          dropZone.appendChild(image); // Add the new image preview
+        };
+
+        reader.readAsDataURL(file);
+      }
+    }
+
+    const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '192.168.10.163'
+    ? 'http://192.168.10.24:8080'  // Local environment
+    : 'https://recipe-generator.ili16.de';  // Production environment
 
     // Function to handle Generate by Name
     async function submitByName() {
@@ -158,7 +373,7 @@
       const payload = { Recipename: recipename, Details: details };
 
       try {
-        const response = await fetch('http://localhost:8080/api/v1/generate/by-name', {
+        const response = await fetch(`${apiBaseUrl}/api/v1/generate/by-name`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -180,10 +395,12 @@
         return;
       }
 
-      const payload = { URL: url };
+      const payload = { URL: url, IsGerman: isGerman };
+
+      showLoading();
 
       try {
-        const response = await fetch('http://localhost:8080/api/v1/generate/by-link', {
+        const response = await fetch(`${apiBaseUrl}/api/v1/generate/by-link`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -198,28 +415,42 @@
 
     // Function to handle Generate by Image
     async function submitByImage() {
-      const file = fileInput.files[0];
+      const fileInput = document.getElementById('image'); // Get the file input element
+      const file = fileInput.files[0]; // Retrieve the selected file
 
       if (!file) {
-        alert('Please upload an image.');
-        return;
+          alert('Please upload an image.');
+          return;
       }
+
+      const recipeName = document.getElementById('recipename-byimage').value.trim();
+
+      if (recipeName && recipeName.length > 25) {
+        alert('Recipe name cannot be longer than 25 characters.');
+        return;
+    }
 
       const formData = new FormData();
       formData.append('image', file);
 
-      try {
-        const response = await fetch('http://localhost:8080/api/v1/generate/by-image', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const result = await response.text();
-        displayResponse(result);
-      } catch (error) {
-        displayResponse('Error: ' + error.message);
+      if (recipeName) {
+        formData.append('recipename', recipeName);
       }
-    }
+
+      formData.append('isGerman', isGerman);
+
+      try {
+          const response = await fetch(`${apiBaseUrl}/api/v1/generate/by-image`, {
+              method: 'POST',
+              body: formData,
+          });
+
+          const result = await response.text();
+          displayResponse(result); // Display the result
+      } catch (error) {
+          displayResponse('Error: ' + error.message);
+      }
+  }
 
     // Function to handle Transform Recipe
     async function submitTransform() {
@@ -231,10 +462,14 @@
         return;
       }
 
-      const payload = { Recipename: transformRecipeName, RecipeText: recipeText };
+      const payload = { 
+        Recipename: transformRecipeName || null, // If transformRecipeName is empty, use null
+        RecipeText: recipeText,
+        IsGerman: isGerman
+      };
 
       try {
-        const response = await fetch('http://localhost:8080/api/v1/transform', {
+        const response = await fetch(`${apiBaseUrl}/api/v1/transform`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -247,13 +482,7 @@
       }
     }
 
-    // Function to display the response
-    function displayResponse(message) {
-      const responseDiv = document.getElementById('response');
-      const responseText = document.getElementById('responseText');
-      responseText.textContent = message;
-      responseDiv.style.display = 'block';
-    }
+
   </script>
 </body>
 </html>
