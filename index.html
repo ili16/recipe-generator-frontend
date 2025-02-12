@@ -132,6 +132,8 @@
 
   <button id="languageToggleButton" onclick="toggleLanguage()">Switch to English</button>
 
+  <button id="TestButton" onclick="displayResponse('## Markdown Content')">Test</button>
+
   <h1 id="heading">Rezept-Generator</h1>
 
   <form id="linkForm">
@@ -191,10 +193,25 @@
   <div id="overlay" class="overlay" style="display: none;">
     <div class="modal-box">
       <div id="loadingSpinner" class="spinner"></div>
-      <div id="markdownContent" style="display: none;">
-        <!-- Rendered Markdown content will be inserted here -->
-        <div id="contentArea"></div>
+  
+      <div id="markdownContent">
+        <div style="display: flex; gap: 20px;">
+          
+          <!-- Hidden Markdown Editor (Initially Hidden) -->
+          <div id="editorContainer" style="width: 50%; display: none;">
+            <h3>Markdown Editor</h3>
+            <textarea id="markdownEditor" style="width: 100%; height: 250px;"></textarea>
+          </div>
+  
+          <!-- Markdown Preview -->
+          <div style="width: 100%; border-left: 1px solid #ccc; padding-left: 20px;">
+            <h3>Preview</h3>
+            <div id="contentArea" style="border: 1px solid #ddd; padding: 10px; min-height: 250px;"></div>
+          </div>
+        </div>
+  
         <span>
+          <button class="edit-btn" onclick="toggleEditor()">Edit</button>
           <button class="accept-btn" onclick="acceptFunction()">Accept</button>
           <button class="decline-btn" onclick="closeBox()">Decline</button>
         </span>
@@ -212,6 +229,9 @@
       document.getElementById('overlay').style.display = 'none';
       contentArea = document.getElementById('contentArea');
       contentArea.innerHTML = '';
+
+      editArea = document.getElementById('markdownEditor');
+      editArea.value = '';
     }
 
     document.getElementById("overlay").style.display = "none";
@@ -282,33 +302,41 @@
       document.getElementById('image').click();
     }
 
-    function displayResponse(message, isError = false) {
-
+      function displayResponse(message, isError = false) {
       document.getElementById('overlay').style.display = 'flex';
-    
+
       const modalBox = document.querySelector('.modal-box');
       const loadingSpinner = document.getElementById('loadingSpinner');
       const markdownContentArea = document.getElementById('markdownContent');
       const contentArea = document.getElementById('contentArea');
-    
-    
+      const markdownEditor = document.getElementById('markdownEditor');
+
       loadingSpinner.style.display = 'block';
-      markdownContentArea.style.display = 'none'; // Hide the markdown content initially
-    
-    
+      markdownContentArea.style.display = 'none'; // Hide content initially
+
       if (isError) {
-      contentArea.innerHTML = `<p style="color: red;">Error: ${message}</p>`;
+        contentArea.innerHTML = `<p style="color: red;">Error: ${message}</p>`;
       } else {
         loadingSpinner.style.display = 'none';
         markdownContentArea.style.display = 'block';
-        contentArea.innerHTML = marked.parse(message);
+        markdownEditor.value = message; // Load markdown into editor
+        contentArea.innerHTML = marked.parse(message); // Show preview
       }
     }
 
-    function closeResponse() {
-      const overlay = document.getElementById('overlay');
-      overlay.style.display = 'none'; // Hide overlay
-      document.getElementById('response').style.display = 'none'; // Hide response box
+    function toggleEditor() {
+      const editorContainer = document.getElementById('editorContainer');
+      if (editorContainer.style.display === "none") {
+        editorContainer.style.display = "block";
+      } else {
+        editorContainer.style.display = "none";
+      }
+    }
+
+    function previewMarkdown() {
+      const markdownEditor = document.getElementById('markdownEditor');
+      const contentArea = document.getElementById('contentArea');
+      contentArea.innerHTML = marked.parse(markdownEditor.value);
     }
 
     function showLoading() {
@@ -489,5 +517,6 @@
 
 
   </script>
+  <script src="markdownEditor.js"></script>
 </body>
 </html>
