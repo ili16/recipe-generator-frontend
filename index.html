@@ -132,7 +132,7 @@
 
   <button id="languageToggleButton" onclick="toggleLanguage()">Switch to English</button>
 
-  <button id="TestButton" onclick="displayResponse('## Markdown Content')">Test</button>
+  <button id="TestButton" onclick="displayResponse('Test','## Markdown Content')">Test</button>
 
   <h1 id="heading">Rezept-Generator</h1>
 
@@ -195,45 +195,34 @@
       <div id="loadingSpinner" class="spinner"></div>
   
       <div id="markdownContent">
+        <div id="recipeNameBox" style="margin-bottom: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; background: #f9f9f9;">
+          <p id="recipeName" style="font-size: 20px; font-weight: bold; cursor: text;"></p>
+          <input type="text" id="recipeNameInput" style="display: none; width: 100%; font-size: 20px; font-weight: bold; border: none; outline: none; background: transparent;">
+        </div>
+
         <div style="display: flex; gap: 20px;">
-          
-          <!-- Hidden Markdown Editor (Initially Hidden) -->
           <div id="editorContainer" style="width: 50%; display: none;">
             <h3>Markdown Editor</h3>
             <textarea id="markdownEditor" style="width: 100%; height: 250px;"></textarea>
           </div>
   
-          <!-- Markdown Preview -->
           <div style="width: 100%; border-left: 1px solid #ccc; padding-left: 20px;">
-            <h3>Preview</h3>
+            <h3 id="previewTitle">Vorschau</h3>
             <div id="contentArea" style="border: 1px solid #ddd; padding: 10px; min-height: 250px;"></div>
           </div>
         </div>
   
         <span>
-          <button class="edit-btn" onclick="toggleEditor()">Edit</button>
-          <button class="accept-btn" onclick="acceptFunction()">Accept</button>
-          <button class="decline-btn" onclick="closeBox()">Decline</button>
+          <button class="edit-btn" onclick="toggleEditor()">Bearbeiten</button>
+          <button class="accept-btn" onclick="acceptFunction()">Akzeptieren</button>
+          <button class="decline-btn" onclick="closeBox()">Abbrechen</button>
         </span>
       </div>
     </div>
   </div>
+  
 
   <script>
-    function acceptFunction() {
-      alert('You have accepted the content.');
-      closeBox();
-    }
-
-    function closeBox() {
-      document.getElementById('overlay').style.display = 'none';
-      contentArea = document.getElementById('contentArea');
-      contentArea.innerHTML = '';
-
-      editArea = document.getElementById('markdownEditor');
-      editArea.value = '';
-    }
-
     document.getElementById("overlay").style.display = "none";
 
     let isGerman = true;
@@ -242,7 +231,7 @@
       if (isGerman) {
         document.getElementById("languageToggleButton").innerText = "Zu deutsch wechseln";
         document.getElementById("heading").innerText = "Recipe Generator";
-        document.getElementsByName("generateByName-details")[0].placeholder="Add details or preferences";
+        document.getElementsByName("generateByName-details")[0].placeholder = "Add details or preferences";
         document.getElementById("generateByName-Title").innerText = "Generate by Name";
         document.getElementById("recipenameLabel").innerText = "Recipe Name:";
         document.getElementById("detailsLabel").innerText = "Details (optional):";
@@ -258,11 +247,15 @@
         document.getElementById("transformRecipeNameLabel").innerText = "Recipe Name (optional):";
         document.getElementById("recipeTextLabel").innerText = "Recipe Text:";
         document.getElementById("transformRecipeBtn").innerText = "Transform Recipe";
+        document.getElementById("previewTitle").innerText = "Preview";
+        document.querySelector(".edit-btn").innerText = "Edit";
+        document.querySelector(".accept-btn").innerText = "Accept";
+        document.querySelector(".decline-btn").innerText = "Decline";
       } else {
         document.getElementById("languageToggleButton").innerText = "Switch to English";
         document.getElementById("heading").innerText = "Rezept-Generator";
         document.getElementById("generateByName-Title").innerText = "Generieren aus Name";
-        document.getElementsByName("generateByName-details")[0].placeholder="Füge Details oder Vorlieben hinzu";
+        document.getElementsByName("generateByName-details")[0].placeholder = "Füge Details oder Vorlieben hinzu";
         document.getElementById("recipenameLabel").innerText = "Rezeptname:";
         document.getElementById("detailsLabel").innerText = "Details (optional):";
         document.getElementById("generateRecipeBtn").innerText = "Rezept generieren";
@@ -277,9 +270,15 @@
         document.getElementById("transformRecipeNameLabel").innerText = "Rezeptname (optional):";
         document.getElementById("recipeTextLabel").innerText = "Rezept:";
         document.getElementById("transformRecipeBtn").innerText = "Rezept generieren";
+        document.getElementById("previewTitle").innerText = "Vorschau";
+        document.querySelector(".edit-btn").innerText = "Bearbeiten";
+        document.querySelector(".accept-btn").innerText = "Akzeptieren";
+        document.querySelector(".decline-btn").innerText = "Abbrechen";
       }
+
       isGerman = !isGerman;
     }
+
 
     function dragOverHandler(event) {
       event.preventDefault();
@@ -302,34 +301,29 @@
       document.getElementById('image').click();
     }
 
-      function displayResponse(message, isError = false) {
-      document.getElementById('overlay').style.display = 'flex';
+    function displayResponse(recipename, recipe, isError = false) {
+      document.body.style.overflow = 'hidden';
 
-      const modalBox = document.querySelector('.modal-box');
+      const overlay = document.getElementById('overlay');
       const loadingSpinner = document.getElementById('loadingSpinner');
       const markdownContentArea = document.getElementById('markdownContent');
       const contentArea = document.getElementById('contentArea');
       const markdownEditor = document.getElementById('markdownEditor');
+      const recipeNameElement = document.getElementById('recipeName');
 
+      overlay.style.display = 'flex';
       loadingSpinner.style.display = 'block';
-      markdownContentArea.style.display = 'none'; // Hide content initially
+      markdownContentArea.style.display = 'none';
 
       if (isError) {
-        contentArea.innerHTML = `<p style="color: red;">Error: ${message}</p>`;
+        contentArea.innerHTML = `<p style="color: red;">Error: ${recipename}</p>`; // Show error message
       } else {
         loadingSpinner.style.display = 'none';
         markdownContentArea.style.display = 'block';
-        markdownEditor.value = message; // Load markdown into editor
-        contentArea.innerHTML = marked.parse(message); // Show preview
-      }
-    }
 
-    function toggleEditor() {
-      const editorContainer = document.getElementById('editorContainer');
-      if (editorContainer.style.display === "none") {
-        editorContainer.style.display = "block";
-      } else {
-        editorContainer.style.display = "none";
+        recipeNameElement.textContent = recipename; // Set Recipe Name
+        markdownEditor.value = recipe; // Set Recipe Content
+        contentArea.innerHTML = marked.parse(recipe); // Convert markdown to HTML
       }
     }
 
@@ -339,18 +333,26 @@
       contentArea.innerHTML = marked.parse(markdownEditor.value);
     }
 
-    function showLoading() {
+    function toggleLoading() {
       const overlay = document.getElementById('overlay');
       const spinner = document.getElementById('loadingSpinner');
+      const content = document.getElementById('markdownContent');
 
-      overlay.style.display = 'flex'; // Show overlay
-      spinner.style.display = 'block'; // Show spinner
-    }
+      const isLoading = spinner.style.display === 'block'; // Check if loading is already shown
 
-    function hideLoading() {
-      const spinner = document.getElementById('loadingSpinner');
-
-      spinner.style.display = 'none'; // Hide spinner
+      if (isLoading) {
+        // Hide loading
+        spinner.style.display = 'none';
+        content.style.display = 'block';
+        overlay.style.display = 'none';
+        document.body.style.overflow = '';
+      } else {
+        // Show loading
+        overlay.style.display = 'flex';  // Show the overlay
+        spinner.style.display = 'block'; // Show the spinner
+        content.style.display = 'none';  // Hide all other content
+        document.body.style.overflow = 'hidden';
+      }
     }
 
 
@@ -379,144 +381,10 @@
         reader.readAsDataURL(file);
       }
     }
-    
-    async function submitByName() {
-
-      showLoading();
-
-      const recipename = document.getElementById('recipename').value.trim();
-      const details = document.getElementById('details').value.trim();
-
-      if (!recipename) {
-        alert('Recipe name is required.');
-        return;
-      }
-
-      const payload = { Recipename: recipename, Details: details, IsGerman: isGerman};
-
-      try {
-        const response = await fetch(`${window.location.protocol}//${window.location.hostname}:${window.location.port}/api/v1/generate/by-name`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        const result = await response.text();
-        hideLoading();
-        displayResponse(result, false);
-      } catch (error) {
-        hideLoading();
-        displayResponse(error.message, true);
-      }
-    }
-
-    async function submitByLink() {
-
-      showLoading();
-      const url = document.getElementById('url').value.trim();
-
-      if (!url) {
-        alert('Recipe link is required.');
-        return;
-      }
-
-      const payload = { URL: url, IsGerman: isGerman };
-
-      try {
-        const response = await fetch(`${window.location.protocol}//${window.location.hostname}:${window.location.port}/api/v1/generate/by-link`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        const result = await response.text();
-        hideLoading();
-        displayResponse(result, false);
-      } catch (error) {
-        hideLoading();
-        displayResponse(error.message, true);
-      }
-    }
-
-    async function submitByImage() {
-      showLoading();
-
-      const fileInput = document.getElementById('image'); // Get the file input element
-      const file = fileInput.files[0]; // Retrieve the selected file
-
-      if (!file) {
-          alert('Please upload an image.');
-          return;
-      }
-
-      const recipeName = document.getElementById('recipename-byimage').value.trim();
-
-      if (recipeName && recipeName.length > 25) {
-        alert('Recipe name cannot be longer than 25 characters.');
-        return;
-    }
-
-      const formData = new FormData();
-      formData.append('image', file);
-
-      if (recipeName) {
-        formData.append('recipename', recipeName);
-      }
-
-      formData.append('isGerman', isGerman);
-
-      try {
-          const response = await fetch(`${window.location.protocol}//${window.location.hostname}:${window.location.port}/api/v1/generate/by-image`, {
-              method: 'POST',
-              body: formData,
-          });
-
-          const result = await response.text();
-          hideLoading();
-          displayResponse(result, false);
-      } catch (error) {
-          hideLoading();
-          displayResponse(error.message, true);
-      }
-  }
-
-    async function submitTransform() {
-      showLoading();
-
-      const transformRecipeName = document.getElementById('transformRecipeName').value.trim();
-      const recipeText = document.getElementById('recipeText').value.trim();
-
-      if (!recipeText) {
-        alert('Recipe text is required.');
-        return;
-      }
-
-      const payload = { 
-        Recipename: transformRecipeName || null,
-        RecipeText: recipeText,
-        IsGerman: isGerman
-      };
-
-      try {
-        const response = await fetch(`${window.location.protocol}//${window.location.hostname}:${window.location.port}/api/v1/transform`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        console.log (response);
-
-        const result = await response.text();
-        displayResponse(result, false);
-        hideLoading();
-      } catch (error) {
-        hideLoading();
-        displayResponse(error.message, true);
-      }
-    }
 
 
   </script>
   <script src="markdownEditor.js"></script>
+  <script src="recipeSubmission.js"></script>
 </body>
 </html>
