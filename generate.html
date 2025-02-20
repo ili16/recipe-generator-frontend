@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <title>Recipe Generator</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+  <nav class="navbar">
+    <div class="nav-container">
+      <a href="#" class="nav-logo">Recipe Generator</a>
+      
+      <ul class="nav-links">
+        <li><a href="#" id="navGenerate">Generator</a></li>
+        <li><a href="recipes.html" id="navRecipes">Meine Rezepte</a></li>
+        <li><a href="#" id="navProfile">Profil</a></li>
+      </ul>
+  
+      <div class="nav-buttons">
+        <button id="languageToggleButton" onclick="toggleLanguage()">Switch to English</button>
+        <button id="TestButton" onclick="displayResponse('Test','## Markdown Content')">Test</button>
+      </div>
+    </div>
+  </nav>
+
+  <h1 id="heading">Rezept-Generator</h1>
+
+  <form id="linkForm">
+    <h2 id="generateByLinkTitle">Generieren aus Link</h2>
+    <label for="url" id="urlLabel">Rezept-Link:</label>
+    <input type="url" id="url" name="url" required>
+
+    <button type="button" onclick="submitByLink()" id="generateRecipeLinkBtn">Rezept generieren</button>
+  </form>
+
+  <form id="imageForm" enctype="multipart/form-data">
+    <h2 id="generateByImageTitle">Generieren aus Bild</h2>
+    <div 
+      id="dropZone"
+      ondrop="dropHandler(event);"
+      ondragover="dragOverHandler(event);"
+      onclick="triggerFileInput()">
+      Bild auswählen
+    </div>
+    <input 
+      type="file" 
+      id="image" 
+      name="image" 
+      accept="image/*" 
+      style="display: none;" 
+      required 
+      onchange="previewImage()">
+
+    <label for="url" id="recipenameByImageLabel">Rezeptname (optional):</label>
+    <input type="text" id="recipename-byimage" name="recipename">
+
+    <button type="button" onclick="submitByImage()" id="generateRecipeImageBtn">Rezept generieren</button>
+  </form>
+
+  <form id="transformForm">
+    <h2 id="transformRecipeTitle">Generieren aus Text</h2>
+    <label for="transformRecipeName" id="transformRecipeNameLabel">Rezeptname (optional):</label>
+    <input type="text" id="transformRecipeName" name="transformRecipeName">
+
+    <label for="recipeText" id="recipeTextLabel">Rezept:</label>
+    <textarea id="recipeText" name="recipeText" rows="6" required></textarea>
+
+    <button type="button" onclick="submitTransform()" id="transformRecipeBtn">Rezept transformieren</button>
+  </form>
+
+  <form id="nameForm">
+    <h2 id="generateByName-Title">Neues Rezept generieren aus Name</h2>
+    <label for="recipename" id="recipenameLabel">Rezeptname:</label>
+    <input type="text" id="recipename" name="recipename" required>
+
+    <label for="details" id="detailsLabel">Details (optional):</label>
+    <textarea id="details" name="generateByName-details" rows="4" placeholder="Füge Details oder Vorlieben hinzu"></textarea>
+
+    <button type="button" onclick="submitByName()" id="generateRecipeBtn">Rezept generieren</button>
+  </form>
+
+  <div id="overlay" class="overlay" style="display: none;">
+    <div class="modal-box">
+      <div id="loadingSpinner" class="spinner"></div>
+  
+      <div id="markdownContent">
+        <div id="recipeNameBox" style="margin-bottom: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; background: #f9f9f9;">
+          <p id="recipeName" style="font-size: 20px; font-weight: bold; cursor: text;"></p>
+          <input type="text" id="recipeNameInput" style="display: none; width: 100%; font-size: 20px; font-weight: bold; border: none; outline: none; background: transparent;">
+        </div>
+
+        <div style="display: flex; gap: 20px;">
+          <div id="editorContainer" style="width: 50%; display: none;">
+            <h3>Markdown Editor</h3>
+            <textarea id="markdownEditor" style="width: 100%; height: 250px;"></textarea>
+          </div>
+  
+          <div style="width: 100%; border-left: 1px solid #ccc; padding-left: 20px;">
+            <h3 id="previewTitle">Vorschau</h3>
+            <div id="contentArea" style="border: 1px solid #ddd; padding: 10px; min-height: 250px;"></div>
+          </div>
+        </div>
+  
+        <span>
+          <button class="edit-btn" onclick="toggleEditor()">Bearbeiten</button>
+          <button class="accept-btn" onclick="acceptFunction()">Akzeptieren</button>
+          <button class="decline-btn" onclick="closeBox()">Abbrechen</button>
+        </span>
+      </div>
+    </div>
+  </div>
+  
+  <script src="login.js" async></script>
+  <script>
+    document.getElementById("overlay").style.display = "none";
+
+    let isGerman = true;
+
+    function toggleLanguage() {
+      if (isGerman) {
+        document.getElementById("languageToggleButton").innerText = "Zu deutsch wechseln";
+        document.getElementById("heading").innerText = "Recipe Generator";
+        document.getElementsByName("generateByName-details")[0].placeholder = "Add details or preferences";
+        document.getElementById("generateByName-Title").innerText = "Generate by Name";
+        document.getElementById("recipenameLabel").innerText = "Recipe Name:";
+        document.getElementById("detailsLabel").innerText = "Details (optional):";
+        document.getElementById("generateRecipeBtn").innerText = "Generate Recipe";
+        document.getElementById("generateByLinkTitle").innerText = "Generate by Link";
+        document.getElementById("urlLabel").innerText = "Recipe Link:";
+        document.getElementById("generateRecipeLinkBtn").innerText = "Generate Recipe";
+        document.getElementById("generateByImageTitle").innerText = "Generate by Image";
+        document.getElementById("dropZone").innerText = "Drag and drop an image here, or click to select one.";
+        document.getElementById("recipenameByImageLabel").innerText = "Recipe Name (optional):";
+        document.getElementById("generateRecipeImageBtn").innerText = "Generate Recipe";
+        document.getElementById("transformRecipeTitle").innerText = "Transform Recipe";
+        document.getElementById("transformRecipeNameLabel").innerText = "Recipe Name (optional):";
+        document.getElementById("recipeTextLabel").innerText = "Recipe Text:";
+        document.getElementById("transformRecipeBtn").innerText = "Transform Recipe";
+        document.getElementById("previewTitle").innerText = "Preview";
+        document.querySelector(".edit-btn").innerText = "Edit";
+        document.querySelector(".accept-btn").innerText = "Accept";
+        document.querySelector(".decline-btn").innerText = "Decline";
+        document.getElementById("navGenerate").innerText = "Generator";
+        document.getElementById("navRecipes").innerText = "My Recipes";
+        document.getElementById("navProfile").innerText = "Profile";
+      } else {
+        document.getElementById("languageToggleButton").innerText = "Switch to English";
+        document.getElementById("heading").innerText = "Rezept-Generator";
+        document.getElementById("generateByName-Title").innerText = "Generieren aus Name";
+        document.getElementsByName("generateByName-details")[0].placeholder = "Füge Details oder Vorlieben hinzu";
+        document.getElementById("recipenameLabel").innerText = "Rezeptname:";
+        document.getElementById("detailsLabel").innerText = "Details (optional):";
+        document.getElementById("generateRecipeBtn").innerText = "Rezept generieren";
+        document.getElementById("generateByLinkTitle").innerText = "Generieren aus Link";
+        document.getElementById("urlLabel").innerText = "Rezept-Link:";
+        document.getElementById("generateRecipeLinkBtn").innerText = "Rezept generieren";
+        document.getElementById("generateByImageTitle").innerText = "Generieren aus Bild";
+        document.getElementById("dropZone").innerText = "Bild auswählen";
+        document.getElementById("recipenameByImageLabel").innerText = "Rezeptname (optional):";
+        document.getElementById("generateRecipeImageBtn").innerText = "Rezept generieren";
+        document.getElementById("transformRecipeTitle").innerText = "Generieren aus Text";
+        document.getElementById("transformRecipeNameLabel").innerText = "Rezeptname (optional):";
+        document.getElementById("recipeTextLabel").innerText = "Rezept:";
+        document.getElementById("transformRecipeBtn").innerText = "Rezept generieren";
+        document.getElementById("previewTitle").innerText = "Vorschau";
+        document.querySelector(".edit-btn").innerText = "Bearbeiten";
+        document.querySelector(".accept-btn").innerText = "Akzeptieren";
+        document.querySelector(".decline-btn").innerText = "Abbrechen";
+        document.getElementById("navGenerate").innerText = "Generator";
+        document.getElementById("navRecipes").innerText = "Meine Rezepte";
+        document.getElementById("navProfile").innerText = "Profil";
+      }
+
+      isGerman = !isGerman;
+    }
+
+
+    function dragOverHandler(event) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      document.getElementById('dropZone').classList.add('dragover');
+    }
+
+    function dropHandler(event) {
+      event.preventDefault();
+      document.getElementById('dropZone').classList.remove('dragover');
+      const files = event.dataTransfer.files;
+      if (files.length > 0) {
+        document.getElementById('image').files = files;
+        updateFileName();
+        previewImage();
+      }
+    }
+
+    function triggerFileInput() {
+      document.getElementById('image').click();
+    }
+
+    function displayResponse(recipename, recipe, isError = false) {
+      document.body.style.overflow = 'hidden';
+
+      const overlay = document.getElementById('overlay');
+      const loadingSpinner = document.getElementById('loadingSpinner');
+      const markdownContentArea = document.getElementById('markdownContent');
+      const contentArea = document.getElementById('contentArea');
+      const markdownEditor = document.getElementById('markdownEditor');
+      const recipeNameElement = document.getElementById('recipeName');
+
+      overlay.style.display = 'flex';
+      loadingSpinner.style.display = 'block';
+      markdownContentArea.style.display = 'none';
+
+      if (isError) {
+        contentArea.innerHTML = `<p style="color: red;">Error: ${recipename}</p>`; // Show error message
+      } else {
+        loadingSpinner.style.display = 'none';
+        markdownContentArea.style.display = 'block';
+
+        recipeNameElement.textContent = recipename; // Set Recipe Name
+        markdownEditor.value = recipe; // Set Recipe Content
+        contentArea.innerHTML = marked.parse(recipe); // Convert markdown to HTML
+      }
+    }
+
+    function previewMarkdown() {
+      const markdownEditor = document.getElementById('markdownEditor');
+      const contentArea = document.getElementById('contentArea');
+      contentArea.innerHTML = marked.parse(markdownEditor.value);
+    }
+
+    function toggleLoading() {
+      const overlay = document.getElementById('overlay');
+      const spinner = document.getElementById('loadingSpinner');
+      const content = document.getElementById('markdownContent');
+
+      const isLoading = spinner.style.display === 'block'; // Check if loading is already shown
+
+      if (isLoading) {
+        // Hide loading
+        spinner.style.display = 'none';
+        content.style.display = 'block';
+        overlay.style.display = 'none';
+        document.body.style.overflow = '';
+      } else {
+        // Show loading
+        overlay.style.display = 'flex';  // Show the overlay
+        spinner.style.display = 'block'; // Show the spinner
+        content.style.display = 'none';  // Hide all other content
+        document.body.style.overflow = 'hidden';
+      }
+    }
+
+
+    function previewImage() {
+      const fileInput = document.getElementById('image');
+      const file = fileInput.files[0];
+
+      if (file) {
+        document.getElementById('dropZone').innerHTML = '';
+
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+          const image = document.createElement('img');
+          image.id = 'previewImage';
+          image.src = event.target.result;
+          const dropZone = document.getElementById('dropZone');
+          const existingPreview = document.getElementById('previewImage');
+          if (existingPreview) {
+            existingPreview.remove();
+          }
+          
+          dropZone.appendChild(image); // Add the new image preview
+        };
+
+        reader.readAsDataURL(file);
+      }
+    }
+
+
+  </script>
+  <script src="markdownEditor.js"></script>
+  <script src="recipeSubmission.js"></script>
+</body>
+</html>
