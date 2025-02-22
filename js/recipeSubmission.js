@@ -1,6 +1,6 @@
 async function submitRecipe({ endpoint, method = "POST", payload = null, fileInputId = null }) {
     toggleLoading();
-  
+
     try {
       let response;
       let options = { method };
@@ -77,8 +77,14 @@ async function submitRecipe({ endpoint, method = "POST", payload = null, fileInp
   function submitByImage() {
     const recipeName = document.getElementById("recipename-byimage").value.trim();
   
-    if (recipeName && recipeName.length > 25) {
+    if (recipeName.length > 25) {
       alert("Recipe name cannot be longer than 25 characters.");
+      return;
+    }
+
+    const fileInput = document.getElementById("image");
+    if (!fileInput.files[0]) {
+      alert("Please upload an image.");
       return;
     }
   

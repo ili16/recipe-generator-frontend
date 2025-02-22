@@ -5,12 +5,21 @@ async function login() {
     }
 
     const response = await fetch(`${window.location.protocol}//${window.location.hostname}:${window.location.port}/api/v1/login`, {
-        method: "GET"
+        method: "GET",
+        credentials: "include"  // Ensure cookies/auth headers are included
     });
 
     if (response.ok) {
         console.log("Successfully logged in.");
-        sessionStorage.setItem('loggedIn', 'true');
+
+        const userEmail = response.headers.get("X-USER-NAME");
+        const userId = response.headers.get("X-USER-ID");
+
+        if (userEmail && userId) {
+            sessionStorage.setItem('userEmail', userEmail);
+            sessionStorage.setItem('userId', userId);
+            sessionStorage.setItem('loggedIn', 'true');
+        }
     } else {
         console.log("Login failed.");
     }
