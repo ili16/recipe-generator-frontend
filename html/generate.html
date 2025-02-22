@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,6 +10,7 @@
   <link rel="stylesheet" href="navbar.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
+
 <body>
 
   <nav class="navbar">
@@ -28,8 +30,8 @@
       </div>
     </div>
   </nav>
-  
-  
+
+
   <h1 id="heading">Rezept-Generator</h1>
 
   <form id="linkForm">
@@ -42,20 +44,10 @@
 
   <form id="imageForm" enctype="multipart/form-data">
     <h2 id="generateByImageTitle">Generieren aus Bild</h2>
-    <div 
-      id="dropZone"
-      ondrop="dropHandler(event);"
-      ondragover="dragOverHandler(event);"
-      onclick="triggerFileInput()">
+    <div id="dropZone" ondrop="dropHandler(event);" ondragover="dragOverHandler(event);" onclick="triggerFileInput()">
       Bild auswählen
     </div>
-    <input 
-      type="file" 
-      id="image" 
-      name="image" 
-      accept="image/*" 
-      style="display: none;" 
-      required 
+    <input type="file" id="image" name="image" accept="image/*" style="display: none;" required
       onchange="previewImage()">
 
     <label for="url" id="recipenameByImageLabel">Rezeptname (optional):</label>
@@ -81,7 +73,8 @@
     <input type="text" id="recipename" name="recipename" required>
 
     <label for="details" id="detailsLabel">Details (optional):</label>
-    <textarea id="details" name="generateByName-details" rows="4" placeholder="Füge Details oder Vorlieben hinzu"></textarea>
+    <textarea id="details" name="generateByName-details" rows="4"
+      placeholder="Füge Details oder Vorlieben hinzu"></textarea>
 
     <button type="button" onclick="submitByName()" id="generateRecipeBtn">Rezept generieren</button>
   </form>
@@ -89,11 +82,13 @@
   <div id="overlay" class="overlay" style="display: none;">
     <div class="modal-box">
       <div id="loadingSpinner" class="spinner"></div>
-  
+
       <div id="markdownContent">
-        <div id="recipeNameBox" style="margin-bottom: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; background: #f9f9f9;">
+        <div id="recipeNameBox"
+          style="margin-bottom: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; background: #f9f9f9;">
           <p id="recipeName" style="font-size: 20px; font-weight: bold; cursor: text;"></p>
-          <input type="text" id="recipeNameInput" style="display: none; width: 100%; font-size: 20px; font-weight: bold; border: none; outline: none; background: transparent;">
+          <input type="text" id="recipeNameInput"
+            style="display: none; width: 100%; font-size: 20px; font-weight: bold; border: none; outline: none; background: transparent;">
         </div>
 
         <div style="display: flex; gap: 20px;">
@@ -101,13 +96,13 @@
             <h3>Markdown Editor</h3>
             <textarea id="markdownEditor" style="width: 100%; height: 250px;"></textarea>
           </div>
-  
+
           <div style="width: 100%; border-left: 1px solid #ccc; padding-left: 20px;">
             <h3 id="previewTitle">Vorschau</h3>
             <div id="contentArea" style="border: 1px solid #ddd; padding: 10px; min-height: 250px;"></div>
           </div>
         </div>
-  
+
         <span>
           <button class="edit-btn" onclick="toggleEditor()">Bearbeiten</button>
           <button class="accept-btn" onclick="acceptFunction()">Akzeptieren</button>
@@ -116,7 +111,7 @@
       </div>
     </div>
   </div>
-  
+
   <script src="login.js" async></script>
   <script>
 
@@ -275,8 +270,8 @@
         document.getElementById('dropZone').innerHTML = '';
 
         const reader = new FileReader();
-        
-        reader.onload = function(event) {
+
+        reader.onload = function (event) {
           const image = document.createElement('img');
           image.id = 'previewImage';
           image.src = event.target.result;
@@ -285,7 +280,7 @@
           if (existingPreview) {
             existingPreview.remove();
           }
-          
+
           dropZone.appendChild(image); // Add the new image preview
         };
 
@@ -298,4 +293,5 @@
   <script src="markdownEditor.js"></script>
   <script src="recipeSubmission.js"></script>
 </body>
+
 </html>
