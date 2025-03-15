@@ -43,6 +43,8 @@ async function submitRecipe({ endpoint, method = "POST", payload = null, fileInp
     toggleLoading();
     displayResponse("Error", error.message, true);
   }
+
+  fetchRecipes();
 }
 
 function submitByName() {
