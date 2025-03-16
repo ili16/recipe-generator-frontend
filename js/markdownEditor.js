@@ -7,14 +7,12 @@ document.addEventListener("DOMContentLoaded", function () {
     const recipeName = document.getElementById("recipeName");
     const recipeNameInput = document.getElementById("recipeNameInput");
 
-    // Toggle markdown editor visibility
     if (editorContainer.style.display === "none") {
       editorContainer.style.display = "block";
     } else {
       editorContainer.style.display = "none";
     }
 
-    // Toggle recipe name editing
     if (recipeName.style.display !== "none") {
       recipeNameInput.value = recipeName.innerText;
       recipeName.style.display = "none";
@@ -60,6 +58,7 @@ document.addEventListener("DOMContentLoaded", function () {
     } catch (error) {
       alert("Failed to add recipe: " + error.message);
     }
+    fetchRecipes();
   }
 
   function closeBox() {

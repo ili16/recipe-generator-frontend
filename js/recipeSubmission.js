@@ -1,19 +1,13 @@
-async function submitRecipe({ endpoint, method = "POST", payload = null, fileInputId = null }) {
+async function submitRecipe({ endpoint, method = "POST", payload = null, fileInputId = null, imageInputID = null, voiceInputID = null }) {
   toggleLoading();
 
   try {
     let response;
     let options = { method };
 
-    if (fileInputId) {
-      const fileInput = document.getElementById(fileInputId);
-      const file = fileInput?.files[0];
-
-      if (!file) {
-        alert("Please upload an image.");
-        hideLoading();
-        return;
-      }
+    if (imageInputID) {
+      const imageInput = document.getElementById(imageInputID);
+      const file = imageInput?.files[0];
 
       const formData = new FormData();
       formData.append("image", file);
@@ -21,6 +15,14 @@ async function submitRecipe({ endpoint, method = "POST", payload = null, fileInp
       if (payload?.Recipename) formData.append("recipename", payload.Recipename);
       formData.append("isGerman", isGerman);
 
+      options.body = formData;
+    } else if (voiceInputID) {
+
+      const voiceInput = document.getElementById(voiceInputID);
+      const file = voiceInput?.files[0];
+      const formData = new FormData();
+      formData.append("audio", file);
+      formData.append("isGerman", isGerman);
       options.body = formData;
     } else {
       options.headers = { "Content-Type": "application/json" };
@@ -35,16 +37,12 @@ async function submitRecipe({ endpoint, method = "POST", payload = null, fileInp
 
     const result = await response.json();
 
-    console.log(result);
-
     toggleLoading();
     displayResponse(result.recipename, result.recipe, false);
   } catch (error) {
     toggleLoading();
     displayResponse("Error", error.message, true);
   }
-
-  fetchRecipes();
 }
 
 function submitByName() {
@@ -84,8 +82,8 @@ function submitByImage() {
     return;
   }
 
-  const fileInput = document.getElementById("image");
-  if (!fileInput.files[0]) {
+  const imageInputID = document.getElementById("image");
+  if (!imageInputID.files[0]) {
     alert("Please upload an image.");
     return;
   }
@@ -93,25 +91,19 @@ function submitByImage() {
   submitRecipe({
     endpoint: "generate/by-image",
     payload: recipeName ? { Recipename: recipeName } : null,
-    fileInputId: "image"
+    imageInputID: "image"
   });
 }
 
-function submitTransform() {
-  const transformRecipeName = document.getElementById("transformRecipeName").value.trim();
-  const recipeText = document.getElementById("recipeText").value.trim();
-
-  if (!recipeText) {
-    alert("Recipe text is required.");
+function submitVoice() {
+  const fileInput = document.getElementById("voice");
+  if (!fileInput.files[0]) {
+    alert("Please upload a voice recording.");
     return;
   }
 
   submitRecipe({
-    endpoint: "transform",
-    payload: {
-      Recipename: transformRecipeName || null,
-      RecipeText: recipeText,
-      IsGerman: isGerman
-    }
+    endpoint: "generate/by-voice",
+    voiceInputID: "voice"
   });
 }

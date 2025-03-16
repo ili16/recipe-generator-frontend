@@ -3,7 +3,7 @@
 # Variables
 DOCKER_IMAGE_NAME=recipe-generator-frontend
 DOCKER_PORT=1000
-NGINX_PORT=80
+NGINX_PORT=443
 LOCAL_ENV=local
 PROD_ENV=production
 DOCKER_REPO=ili16/recipe-generator-frontend

@@ -56,17 +56,6 @@
     <button type="button" onclick="submitByImage()" id="generateRecipeImageBtn">Rezept generieren</button>
   </form>
 
-  <form id="transformForm">
-    <h2 id="transformRecipeTitle">Generieren aus Text</h2>
-    <label for="transformRecipeName" id="transformRecipeNameLabel">Rezeptname (optional):</label>
-    <input type="text" id="transformRecipeName" name="transformRecipeName">
-
-    <label for="recipeText" id="recipeTextLabel">Rezept:</label>
-    <textarea id="recipeText" name="recipeText" rows="6" required></textarea>
-
-    <button type="button" onclick="submitTransform()" id="transformRecipeBtn">Rezept transformieren</button>
-  </form>
-
   <form id="nameForm">
     <h2 id="generateByName-Title">Neues Rezept generieren aus Name</h2>
     <label for="recipename" id="recipenameLabel">Rezeptname:</label>
@@ -77,6 +66,18 @@
       placeholder="Füge Details oder Vorlieben hinzu"></textarea>
 
     <button type="button" onclick="submitByName()" id="generateRecipeBtn">Rezept generieren</button>
+  </form>
+
+  <form id="voiceForm">
+    <h2 id="generateByVoice-Title">Neues Rezept generieren aus Sprache</h2>
+  
+    <input type="file" id="voice" hidden>
+  
+    <button type="button" id="toggleRecordingBtn">🎤 Aufnahme starten</button>
+    <audio id="audioPlayback" controls hidden></audio>
+  
+    <button type="button" id="retryRecordingBtn" hidden>🔄 Neue Aufnahme</button>
+    <button type="button" onclick="submitVoice()" id="submitVoiceBtn" disabled>Rezept generieren</button>
   </form>
 
   <div id="overlay" class="overlay" style="display: none;">
@@ -293,6 +294,7 @@
   <script src="markdownEditor.js"></script>
   <script src="recipeSubmission.js"></script>
   <script src="GetRecipes.js"></script>
+  <script src="Voice.js"></script>
 </body>
 
 </html>
