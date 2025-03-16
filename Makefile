@@ -13,7 +13,7 @@ VERSION=latest
 
 # Build the Docker image for local environment
 build-local:
-	docker build --build-arg ENV=$(LOCAL_ENV) -t $(DOCKER_IMAGE_NAME) .
+	docker build --build-arg ENV=$(LOCAL_ENV) -t $(DOCKER_IMAGE_NAME) -f Dockerfile.local .
 
 # Build the Docker image for production environment
 build-production:
