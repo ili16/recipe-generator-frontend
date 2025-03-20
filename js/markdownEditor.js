@@ -32,7 +32,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   async function acceptFunction() {
     const recipename = document.getElementById("recipeName").textContent.trim();
-    const recipe = document.getElementById("contentArea").innerHTML.trim();
+    const recipe = document.getElementById("markdownEditor").value.trim();
 
     if (!recipename || !recipe) {
       alert("Recipe name and content cannot be empty.");

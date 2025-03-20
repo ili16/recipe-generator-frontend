@@ -2,8 +2,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const profileContainer = document.getElementById("profileContainer");
 
     // Check if the user is logged in and if profile data is in localStorage
-    const userEmail = localStorage.getItem("userEmail");
-    const userId = localStorage.getItem("userId");
+    const userEmail = sessionStorage.getItem("userEmail");
+    const userId = sessionStorage.getItem("userId");
 
     if (userEmail && userId) {
         console.log("User Email:", userEmail);
@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         profileContainer.appendChild(profileCard);
     } else {
-        console.log("No user profile data found in localStorage.");
+        console.log("No user profile data found in sessionStorage.");
         await login();  // If not found, trigger the login function to fetch and store the data
     }
 });

@@ -1,5 +1,5 @@
 async function login() {
-    if (localStorage.getItem('loggedIn')) {
+    if (sessionStorage.getItem('loggedIn')) {
         console.log('Already logged in during this session.');
         return;
     }
@@ -16,9 +16,9 @@ async function login() {
         const userId = response.headers.get("X-USER-ID");
 
         if (userEmail && userId) {
-            localStorage.setItem('userEmail', userEmail);
-            localStorage.setItem('userId', userId);
-            localStorage.setItem('loggedIn', 'true');
+            sessionStorage.setItem('userEmail', userEmail);
+            sessionStorage.setItem('userId', userId);
+            sessionStorage.setItem('loggedIn', 'true');
         }
     } else {
         console.log("Login failed.");
