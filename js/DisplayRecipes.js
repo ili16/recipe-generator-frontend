@@ -40,13 +40,6 @@ function displayRecipes() {
     });
 }
 
-function handleEscapeKey(event) {
-    if (event.key === "Escape") {
-        closeConfirmation();
-    }
-}
-
-
 function deleteRecipe(recipeID, recipeElement) {
     showConfirmation(() => confirmDelete(recipeID, recipeElement));
 }
@@ -85,6 +78,17 @@ function toggleLanguage() {
     button.innerText = button.innerText === "Switch to English"
         ? "Zu Deutsch wechseln"
         : "Switch to English";
+}
+
+function handleEscapeKey(event) {
+    if (event.key === "Escape") {
+        closeConfirmation();
+        const modal = document.getElementById("importModal");
+        if (modal && !modal.classList.contains("hidden")) {
+            modal.classList.add("hidden");
+            document.removeEventListener("keydown", handleEscapeKey);  // Remove listener to avoid multiple calls
+        }
+    }
 }
 
 function closeConfirmation() {
@@ -133,26 +137,28 @@ function showConfirmation(onConfirm) {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    // Getting all necessary elements after the page is loaded
     const modal = document.getElementById("importModal");
     const openBtn = document.getElementById("openImportModal");
     const closeBtn = document.getElementById("closeImportModal");
-    const submitBtn = document.getElementById("submitRecipe");  // Moved inside DOMContentLoaded
+    const submitBtn = document.getElementById("submitRecipe");
 
-    // Show modal on import button click
-    openBtn.addEventListener("click", () => modal.classList.remove("hidden"));
+    openBtn.addEventListener("click", () => {
+        modal.classList.remove("hidden");
+        document.body.style.overflow = 'hidden';
+        document.addEventListener("keydown", handleEscapeKey);
+    });
 
-    // Hide modal on cancel button click
-    closeBtn.addEventListener("click", () => modal.classList.add("hidden"));
+    closeBtn.addEventListener("click", () => {
+        modal.classList.add("hidden");
+        document.removeEventListener("keydown", handleEscapeKey);
+    });
 
-    // Auto-resize the recipe textarea as the user types
     const recipeTextarea = document.getElementById("recipe");
     recipeTextarea.addEventListener("input", () => {
         recipeTextarea.style.height = "auto"; // Reset height
         recipeTextarea.style.height = recipeTextarea.scrollHeight + "px";
     });
 
-    // Handle recipe submission
     submitBtn.addEventListener("click", async () => {
         const recipename = document.getElementById("recipename").value.trim();
         const recipe = document.getElementById("recipe").value.trim();
