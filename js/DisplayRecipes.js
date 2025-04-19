@@ -1,11 +1,12 @@
 document.addEventListener("DOMContentLoaded", function () {
     const recipes = JSON.parse(localStorage.getItem("recipes"));
     if (recipes) {
-        displayRecipes(recipes);
+        displayRecipes();
     }
 });
 
-function displayRecipes(recipes) {
+function displayRecipes() {
+    const recipes = JSON.parse(localStorage.getItem("recipes"));
     const recipeContainer = document.getElementById("recipeContainer");
     recipeContainer.innerHTML = "";
 
@@ -131,22 +132,27 @@ function showConfirmation(onConfirm) {
     document.addEventListener("keydown", handleEscapeKey);
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", function () {
+    // Getting all necessary elements after the page is loaded
     const modal = document.getElementById("importModal");
     const openBtn = document.getElementById("openImportModal");
     const closeBtn = document.getElementById("closeImportModal");
-    const submitBtn = document.getElementById("submitRecipe");
+    const submitBtn = document.getElementById("submitRecipe");  // Moved inside DOMContentLoaded
 
+    // Show modal on import button click
     openBtn.addEventListener("click", () => modal.classList.remove("hidden"));
+
+    // Hide modal on cancel button click
     closeBtn.addEventListener("click", () => modal.classList.add("hidden"));
 
+    // Auto-resize the recipe textarea as the user types
     const recipeTextarea = document.getElementById("recipe");
-
     recipeTextarea.addEventListener("input", () => {
-        recipeTextarea.style.height = "auto"; // Reset
+        recipeTextarea.style.height = "auto"; // Reset height
         recipeTextarea.style.height = recipeTextarea.scrollHeight + "px";
     });
 
+    // Handle recipe submission
     submitBtn.addEventListener("click", async () => {
         const recipename = document.getElementById("recipename").value.trim();
         const recipe = document.getElementById("recipe").value.trim();
@@ -158,7 +164,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const newRecipe = {
-            id: Date.now().toString(), // unique ID
             recipename,
             recipe,
             category
@@ -173,16 +178,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!response.ok) throw new Error("Failed to add recipe");
 
-            // Update local storage
-            const stored = JSON.parse(localStorage.getItem("recipes")) || [];
-            stored.push(newRecipe);
-            localStorage.setItem("recipes", JSON.stringify(stored));
-
-            displayRecipes(stored);
+            showSuccessToast();
             modal.classList.add("hidden");
+
+            // Clear the form
+            document.getElementById("recipename").value = "";
+            document.getElementById("recipe").value = "";
+            document.getElementById("category").value = "";
+            recipeTextarea.style.height = "auto"; // reset textarea height
+
+            fetchRecipes();
+            displayRecipes();
         } catch (error) {
             console.error("Error adding recipe:", error);
             alert("Could not add recipe. Check console.");
         }
     });
 });
+
+
+function showSuccessToast() {
+    const toast = document.getElementById("importSuccess");
+    toast.classList.remove("hidden");
+    toast.classList.add("show");
+
+    setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.classList.add("hidden"), 500);
+    }, 2000);
+}
