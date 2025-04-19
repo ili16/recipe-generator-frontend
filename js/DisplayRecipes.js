@@ -130,3 +130,59 @@ function showConfirmation(onConfirm) {
     // ESC key support
     document.addEventListener("keydown", handleEscapeKey);
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+    const modal = document.getElementById("importModal");
+    const openBtn = document.getElementById("openImportModal");
+    const closeBtn = document.getElementById("closeImportModal");
+    const submitBtn = document.getElementById("submitRecipe");
+
+    openBtn.addEventListener("click", () => modal.classList.remove("hidden"));
+    closeBtn.addEventListener("click", () => modal.classList.add("hidden"));
+
+    const recipeTextarea = document.getElementById("recipe");
+
+    recipeTextarea.addEventListener("input", () => {
+        recipeTextarea.style.height = "auto"; // Reset
+        recipeTextarea.style.height = recipeTextarea.scrollHeight + "px";
+    });
+
+    submitBtn.addEventListener("click", async () => {
+        const recipename = document.getElementById("recipename").value.trim();
+        const recipe = document.getElementById("recipe").value.trim();
+        const category = document.getElementById("category").value.trim();
+
+        if (!recipename || !recipe || !category) {
+            alert("Please fill out all fields.");
+            return;
+        }
+
+        const newRecipe = {
+            id: Date.now().toString(), // unique ID
+            recipename,
+            recipe,
+            category
+        };
+
+        try {
+            const response = await fetch("/api/v1/add-recipe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newRecipe)
+            });
+
+            if (!response.ok) throw new Error("Failed to add recipe");
+
+            // Update local storage
+            const stored = JSON.parse(localStorage.getItem("recipes")) || [];
+            stored.push(newRecipe);
+            localStorage.setItem("recipes", JSON.stringify(stored));
+
+            displayRecipes(stored);
+            modal.classList.add("hidden");
+        } catch (error) {
+            console.error("Error adding recipe:", error);
+            alert("Could not add recipe. Check console.");
+        }
+    });
+});
