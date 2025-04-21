@@ -59,6 +59,26 @@ document.addEventListener("DOMContentLoaded", function () {
       alert("Failed to add recipe: " + error.message);
     }
     fetchRecipes();
+    clearInputs();
+  }
+
+  function clearInputs() {
+    // Clear text inputs
+    document.querySelectorAll('input[type="text"], input[type="url"]').forEach(input => input.value = '');
+  
+    // Clear text areas
+    document.querySelectorAll('textarea').forEach(textarea => textarea.value = '');
+  
+    // Reset placeholders
+    document.getElementsByName("generateByName-details")[0].placeholder = isGerman
+      ? "Füge Details oder Vorlieben hinzu"
+      : "Add details or preferences";
+  
+    // Reset file inputs
+    document.querySelectorAll('input[type="file"]').forEach(fileInput => fileInput.value = '');
+  
+    // Reset drop zone text
+    document.getElementById("dropZone").innerText = isGerman ? "Bild auswählen" : "Drag and drop an image here, or click to select one.";
   }
 
   function closeBox() {

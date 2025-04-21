@@ -143,6 +143,11 @@ button:hover {
   color: white;
 }
 
+.reprompt-btn {
+  background-color: #2196F3;
+  color: white;
+}
+
 .profile-container {
   margin: 20px;
   display: flex;

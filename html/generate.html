@@ -104,8 +104,16 @@
           </div>
         </div>
 
+        <div id="repromptContainer" style="margin-top: 20px; display: none;">
+          <label for="repromptInput"><strong>Neue Anfrage an die KI:</strong></label>
+          <textarea id="repromptInput" rows="3" placeholder="Z.B. 'Füge mehr vegetarische Optionen hinzu'" style="width: 100%; padding: 8px; margin-top: 5px;"></textarea>
+          <button onclick="sendReprompt()" class="edit-btn" style="margin-top: 10px;">Absenden</button>
+        </div>
+        
+
         <span>
-          <button class="edit-btn" onclick="toggleEditor()">Bearbeiten</button>
+          <button class="edit-btn" onclick="toggleEditor()">Manuell Bearbeiten</button>
+          <button class="reprompt-btn" onclick="showRepromptBox()">AI neu fragen</button>
           <button class="accept-btn" onclick="acceptFunction()">Akzeptieren</button>
           <button class="decline-btn" onclick="closeBox()">Abbrechen</button>
         </span>
