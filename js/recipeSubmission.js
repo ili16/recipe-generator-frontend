@@ -1,5 +1,5 @@
 async function submitRecipe({ endpoint, method = "POST", payload = null, fileInputId = null, imageInputID = null, voiceInputID = null }) {
-  toggleLoading();
+  showLoading();
 
   try {
     let response;
@@ -37,10 +37,10 @@ async function submitRecipe({ endpoint, method = "POST", payload = null, fileInp
 
     const result = await response.json();
 
-    toggleLoading();
+    hideLoading();
     displayResponse(result.recipename, result.recipe, false);
   } catch (error) {
-    toggleLoading();
+    hideLoading();
     displayResponse("Error", error.message, true);
   }
 }

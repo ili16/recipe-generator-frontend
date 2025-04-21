@@ -8,6 +8,7 @@
   <title>Recipe Generator</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="navbar.css">
+  <link rel="stylesheet" href="loading.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 
@@ -248,29 +249,6 @@
       contentArea.innerHTML = marked.parse(markdownEditor.value);
     }
 
-    function toggleLoading() {
-      const overlay = document.getElementById('overlay');
-      const spinner = document.getElementById('loadingSpinner');
-      const content = document.getElementById('markdownContent');
-
-      const isLoading = spinner.style.display === 'block'; // Check if loading is already shown
-
-      if (isLoading) {
-        // Hide loading
-        spinner.style.display = 'none';
-        content.style.display = 'block';
-        overlay.style.display = 'none';
-        document.body.style.overflow = '';
-      } else {
-        // Show loading
-        overlay.style.display = 'flex';  // Show the overlay
-        spinner.style.display = 'block'; // Show the spinner
-        content.style.display = 'none';  // Hide all other content
-        document.body.style.overflow = 'hidden';
-      }
-    }
-
-
     function previewImage() {
       const fileInput = document.getElementById('image');
       const file = fileInput.files[0];
@@ -303,6 +281,7 @@
   <script src="recipeSubmission.js"></script>
   <script src="GetRecipes.js"></script>
   <script src="Voice.js"></script>
+  <script src="loading.js"></script>
 </body>
 
 </html>

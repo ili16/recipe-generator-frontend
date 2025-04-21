@@ -45,6 +45,7 @@ function deleteRecipe(recipeID, recipeElement) {
 }
 
 async function confirmDelete(recipeID, recipeElement) {
+    showLoading();
     try {
         const response = await fetch(`${window.location.protocol}//${window.location.hostname}:${window.location.port}/api/v1/delete-recipe`, {
             method: 'DELETE',
@@ -61,7 +62,9 @@ async function confirmDelete(recipeID, recipeElement) {
         recipeElement.remove();
         removeRecipeFromLocalStorage(recipeID);
         closeConfirmation();
+        hideLoading();
     } catch (error) {
+        hideLoading();
         console.error("Error deleting recipe:", error);
     }
 }
@@ -162,7 +165,7 @@ document.addEventListener("DOMContentLoaded", function () {
     submitBtn.addEventListener("click", async () => {
         const recipename = document.getElementById("recipename").value.trim();
         const recipe = document.getElementById("recipe").value.trim();
-        const category = document.getElementById("category").value.trim();
+        const recipecategory = document.getElementById("category").value.trim();
 
         if (!recipename || !recipe || !category) {
             alert("Please fill out all fields.");
@@ -172,10 +175,11 @@ document.addEventListener("DOMContentLoaded", function () {
         const newRecipe = {
             recipename,
             recipe,
-            category
+            recipecategory
         };
 
         try {
+            showLoading();
             const response = await fetch("/api/v1/add-recipe", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -195,9 +199,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
             fetchRecipes();
             displayRecipes();
+            hideLoading();
         } catch (error) {
             console.error("Error adding recipe:", error);
             alert("Could not add recipe. Check console.");
+            hideLoading();
         }
     });
 });
