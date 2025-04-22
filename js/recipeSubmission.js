@@ -127,6 +127,7 @@ async function sendReprompt() {
   document.getElementById("loadingSpinner").style.display = "block";
 
   try {
+    showLoading();
     const response = await fetch("/api/v1/update-recipe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -147,11 +148,14 @@ async function sendReprompt() {
     // Reset reprompt box
     document.getElementById("repromptInput").value = "";
     document.getElementById("repromptContainer").style.display = "none";
+    hideLoading();
   } catch (err) {
     console.error("Re-prompt error:", err);
+    hideLoading();
     alert("Fehler beim erneuten Anfragen der KI.");
   } finally {
     document.getElementById("loadingSpinner").style.display = "none";
+    hideLoading();
   }
 }
 

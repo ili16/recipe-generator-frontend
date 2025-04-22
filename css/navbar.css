@@ -1,14 +1,14 @@
 .navbar {
-  background-color: #28a745;
+  background: linear-gradient(90deg, #28a745, #218838);
   color: white;
-  padding: 15px 20px;
+  padding: 20px 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   position: fixed;
   top: 0;
   width: 100%;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
   z-index: 1000;
 }
   
@@ -42,13 +42,38 @@
   color: white;
   text-decoration: none;
   font-size: 1em;
-  padding: 10px 15px;
-  border-radius: 5px;
-  transition: background 0.3s;
+  padding: 12px 18px;
+  border-radius: 8px;
+  transition: background 0.3s, transform 0.2s;
+}
+
+/* Updated the Kochbuch button to align with other buttons */
+.nav-links a#storageLink {
+  display: inline;
+  color: #ffcc00;
+  font-weight: bold;
+  text-decoration: none;
+  font-size: 1em;
+  padding: 12px 18px;
+  border-radius: 8px;
+  border: 2px solid #ffcc00;
+  transition: background 0.3s, color 0.3s;
+  margin-left: 10px;
+}
+
+.nav-links a#storageLink:hover {
+  background: #ffcc00;
+  color: #000;
+}
+
+.nav-links a#storageLink span {
+  font-size: 1.2em;
+  margin-left: 5px;
 }
 
 .nav-links a:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.05);
 }
 
 .nav-buttons {
@@ -58,23 +83,31 @@
 }
 
 .hamburger-menu {
-    display: none;
-  }
+  display: none;
+  font-size: 2em;
+  color: white;
+  transition: transform 0.2s;
+}
+
+.hamburger-menu:hover {
+  transform: rotate(90deg);
+}
   
 .nav-buttons button {
-  padding: 8px 12px;
+  padding: 10px 15px;
   background-color: white;
   color: #28a745;
   border: none;
   cursor: pointer;
   font-weight: bold;
-  border-radius: 5px;
-  transition: background 0.3s, color 0.3s;
+  border-radius: 8px;
+  transition: background 0.3s, color 0.3s, transform 0.2s;
 }
   
 .nav-buttons button:hover {
   background-color: #218838;
   color: white;
+  transform: scale(1.05);
 }
 
 @media screen and (max-width: 768px) {

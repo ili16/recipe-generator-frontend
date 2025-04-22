@@ -15,7 +15,7 @@
 <body>
 
   <nav class="navbar">
-    <a href="#" class="nav-logo">Recipe Generator</a>
+    <a href="generate.html" class="nav-logo">Recipe Generator</a>
 
     <button class="hamburger-menu" onclick="toggleMenu()">☰</button>
 
@@ -24,6 +24,7 @@
         <li><a href="#" id="navGenerate">Generator</a></li>
         <li><a href="recipes.html" id="navRecipes">Meine Rezepte</a></li>
         <li><a href="profile.html" id="navProfile">Profil</a></li>
+        <li><a id="storageLink" href="#" target="_blank" class="nav-link">Kochbuch</a></li>
       </ul>
 
       <div class="nav-buttons">
@@ -123,6 +124,7 @@
   </div>
 
   <script src="login.js" async></script>
+  <script src="navbar.js" defer></script>
   <script>
 
     function toggleMenu() {
@@ -268,7 +270,7 @@
             existingPreview.remove();
           }
 
-          dropZone.appendChild(image); // Add the new image preview
+          dropZone.appendChild(image);
         };
 
         reader.readAsDataURL(file);

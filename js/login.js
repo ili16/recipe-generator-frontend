@@ -14,16 +14,19 @@ async function login() {
 
         const userEmail = response.headers.get("X-USER-NAME");
         const userId = response.headers.get("X-USER-ID");
+        const storageAccountName = response.headers.get("X-USER-STORAGEACCOUNT");
 
         if (userEmail && userId) {
             sessionStorage.setItem('userEmail', userEmail);
             sessionStorage.setItem('userId', userId);
             sessionStorage.setItem('loggedIn', 'true');
+            sessionStorage.setItem('storageAccountName', storageAccountName);
         }
     } else {
         console.log("Login failed.");
     }
     fetchRecipes();
+    updateKochbuchLink()
 }
 
 login();

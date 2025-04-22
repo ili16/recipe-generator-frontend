@@ -6,10 +6,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     const userId = sessionStorage.getItem("userId");
 
     if (userEmail && userId) {
-        console.log("User Email:", userEmail);
-        console.log("User ID:", userId);
-
-        // Create the profile card with user data
         const profileCard = document.createElement("div");
         profileCard.classList.add("profile-card");
 
@@ -18,6 +14,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             <div class="profile-info">
                 <p><strong>Email:</strong> <span class="user-info">${userEmail}</span></p>
                 <p><strong>ID:</strong> <span class="user-info">${userId}</span></p>
+                <p><strong>Storage Account Name:</strong> <span class="user-info">${sessionStorage.getItem("storageAccountName")}</span></p>
             </div>
         `;
 
