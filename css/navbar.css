@@ -1,16 +1,11 @@
-.navbar {
+body .navbar.navbar-expand-lg {
   background: linear-gradient(90deg, #28a745, #218838);
   color: white;
-  padding: 20px 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  position: fixed;
-  top: 0;
-  left: 0;
+  position: fixed !important;
   width: 100%;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  z-index: 1000;
 }
 
 .navbar-collapse {
