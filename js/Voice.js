@@ -22,8 +22,8 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
-          const file = new File([audioBlob], "recording.wav", { type: "audio/wav" });
+          const audioBlob = new Blob(audioChunks, { type: "audio/mpeg" }); // Changed MIME type to audio/mpeg for better iOS compatibility
+          const file = new File([audioBlob], "recording.mp3", { type: "audio/mpeg" }); // Updated file extension to .mp3
 
           const dataTransfer = new DataTransfer();
           dataTransfer.items.add(file);
