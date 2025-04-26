@@ -227,16 +227,20 @@
       const markdownEditor = document.getElementById('markdownEditor');
       const recipeNameElement = document.getElementById('recipeName');
 
-      overlay.style.display = 'flex';
-      loadingSpinner.style.display = 'block';
-      markdownContentArea.style.display = 'none';
-
       if (isError) {
-        contentArea.innerHTML = `<p style="color: red;">Error: ${recipename}</p>`; // Show error message
-      } else {
-        loadingSpinner.style.display = 'none';
-        markdownContentArea.style.display = 'block';
+        // Display error in a dedicated error box
+        const errorBox = document.createElement('div');
+        errorBox.style.color = 'red';
+        errorBox.style.border = '1px solid red';
+        errorBox.style.padding = '10px';
+        errorBox.style.marginBottom = '10px';
+        errorBox.style.backgroundColor = '#ffe6e6';
+        errorBox.textContent = `Error: ${recipe}`;
 
+        // Clear previous content and show the error box
+        contentArea.innerHTML = '';
+        contentArea.appendChild(errorBox);
+      } else {
         recipeNameElement.textContent = recipename; // Set Recipe Name
         markdownEditor.value = recipe; // Set Recipe Content
         contentArea.innerHTML = marked.parse(recipe); // Convert markdown to HTML
