@@ -9,3 +9,8 @@ function updateKochbuchLink() {
 
 // Call this function on DOMContentLoaded to set the initial link
 window.addEventListener('DOMContentLoaded', updateKochbuchLink);
+
+function toggleMenu() {
+  const navContainer = document.querySelector('.nav-links-and-buttons');
+  navContainer.classList.toggle('active');
+}

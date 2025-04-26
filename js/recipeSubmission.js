@@ -116,18 +116,15 @@ function showRepromptBox() {
 async function sendReprompt() {
   const promptText = document.getElementById("repromptInput").value.trim();
   const currentRecipe = document.getElementById("markdownEditor").value.trim();
-  console.log ("currentRecipe", currentRecipe);
-  console.log("promptText", promptText);
 
   if (!promptText || !currentRecipe) {
     alert("Bitte gib sowohl ein Rezept als auch eine neue Anfrage ein.");
     return;
   }
 
-  document.getElementById("loadingSpinner").style.display = "block";
+  showLoading();
 
   try {
-    showLoading();
     const response = await fetch("/api/v1/update-recipe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -145,16 +142,14 @@ async function sendReprompt() {
     document.getElementById("contentArea").innerHTML = marked.parse(data.recipe);
     document.getElementById("markdownEditor").value = data.recipe;
 
-    // Reset reprompt box
     document.getElementById("repromptInput").value = "";
     document.getElementById("repromptContainer").style.display = "none";
-    hideLoading();
+
   } catch (err) {
     console.error("Re-prompt error:", err);
     hideLoading();
     alert("Fehler beim erneuten Anfragen der KI.");
   } finally {
-    document.getElementById("loadingSpinner").style.display = "none";
     hideLoading();
   }
 }
