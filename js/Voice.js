@@ -22,18 +22,18 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunks, { type: "audio/mpeg" }); // Changed MIME type to audio/mpeg for better iOS compatibility
-          const file = new File([audioBlob], "recording.mp3", { type: "audio/mpeg" }); // Updated file extension to .mp3
-
+          const audioBlob = new Blob(audioChunks, { type: "audio/wav" }); // Change MIME type to audio/wav
+          const file = new File([audioBlob], "recording.wav", { type: "audio/wav" }); // Updated to .wav extension
+        
           const dataTransfer = new DataTransfer();
           dataTransfer.items.add(file);
           voiceInput.files = dataTransfer.files;
-
+        
           audioElement.src = URL.createObjectURL(audioBlob);
           audioElement.hidden = false;
           retryBtn.hidden = false;
           submitBtn.disabled = false;
-
+        
           if (audioStream) {
             audioStream.getTracks().forEach(track => track.stop());
             audioStream = null;

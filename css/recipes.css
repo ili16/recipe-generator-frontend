@@ -1,0 +1,56 @@
+.recipe-card {
+    /* Ensure the recipe cards themselves have some width */
+    width: 90vw; /* Adjust as needed, leaving some margin */
+    margin: 10px auto; /* Center the cards and add spacing */
+  }
+  
+  .recipe-details {
+    width: 100%; /* Take full width of the card */
+  }
+  
+  .recipe-summary {
+    width: 85vw; /* Make the summary nearly full-screen width */
+    padding: 15px;
+    font-size: 1.2em;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    margin-bottom: 5px;
+  }
+  
+  .recipe-details[open] .recipe-summary {
+    background-color: #e0e0e0;
+  }
+  
+  .recipe-details p {
+    padding: 15px;
+    line-height: 1.6;
+  }
+  
+  .delete-button {
+    margin-top: 10px;
+    background-color: #ff4d4d;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  
+  .delete-button:hover {
+    background-color: #e60000;
+  }
+
+.update-button {
+    margin-top: 10px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-right: 20px;
+}
+  
+.update-button:hover {
+    background-color: #0056b3;
+}

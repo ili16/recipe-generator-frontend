@@ -27,20 +27,6 @@ body {
   font-size: 0.9em;
 }
 
-#overlay {
-  display: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
-  z-index: 1000;
-  display: flex;
-  justify-content: center; /* Center horizontally */
-  align-items: center; /* Center vertically */
-  flex-direction: column; /* Stack elements vertically */
-}
 .spinner {
     border: 4px solid #f3f3f3;
     border-top: 4px solid #3498db;
@@ -186,48 +172,6 @@ button:hover {
   font-weight: bold;
 }
 
-.recipe-card {
-  /* Ensure the recipe cards themselves have some width */
-  width: 90vw; /* Adjust as needed, leaving some margin */
-  margin: 10px auto; /* Center the cards and add spacing */
-}
-
-.recipe-details {
-  width: 100%; /* Take full width of the card */
-}
-
-.recipe-summary {
-  width: 85vw; /* Make the summary nearly full-screen width */
-  padding: 15px;
-  font-size: 1.2em;
-  background-color: #f0f0f0;
-  border: 1px solid #ccc;
-  margin-bottom: 5px;
-}
-
-.recipe-details[open] .recipe-summary {
-  background-color: #e0e0e0;
-}
-
-.recipe-details p {
-  padding: 15px;
-  line-height: 1.6;
-}
-
-.delete-button {
-  margin-top: 10px;
-  background-color: #ff4d4d;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 5px;
-  cursor: pointer;
-}
-
-.delete-button:hover {
-  background-color: #e60000;
-}
-
 .confirmation-overlay {
   position: fixed;
   top: 0;
@@ -298,7 +242,7 @@ button:hover {
 }
 
 /* Modal styles */
-.modal {
+.custom-modal {
   position: fixed;
   top: 0;
   left: 0;
@@ -310,10 +254,10 @@ button:hover {
   justify-content: center;
   z-index: 9999;
 }
-.modal.hidden {
+.custom-modal.hidden {
   display: none;
 }
-.modal-content {
+.custom-modal-content {
   background: #fff;
   padding: 2rem;
   border-radius: 10px;
@@ -323,12 +267,12 @@ button:hover {
   flex-direction: column;
 }
 
-.modal-content label {
+.custom-modal-content label {
   margin-top: 1rem;
   font-weight: bold;
 }
 
-.modal-content input {
+.custom-modal-content input {
   margin-top: 0.5rem;
   padding: 0.5rem;
   width: 100%;
@@ -336,7 +280,7 @@ button:hover {
   border: 1px solid #ccc;
 }
 
-.modal-content textarea {
+.custom-modal-content textarea {
   margin-top: 0.5rem;
   padding: 0.5rem;
   width: 100%;
@@ -365,7 +309,7 @@ button:hover {
   cursor: pointer;
 }
 
-.modal-content select {
+.custom-modal-content select {
   margin-top: 0.5rem;
   padding: 0.5rem;
   width: 100%;

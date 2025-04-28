@@ -1,3 +1,5 @@
+let editingRecipeId = null;
+
 document.addEventListener("DOMContentLoaded", function () {
     const recipes = JSON.parse(localStorage.getItem("recipes"));
     if (recipes) {
@@ -32,9 +34,18 @@ function displayRecipes() {
             deleteRecipe(recipe.id, recipeCard);
         };
 
+        const updateButton = document.createElement("button");
+        updateButton.classList.add("update-button");
+        updateButton.innerText = "Update";
+        updateButton.onclick = function () {
+            updateRecipe(recipe.id);
+        };
+
+
         recipeDetails.appendChild(summary);
         recipeDetails.appendChild(content);
         recipeCard.appendChild(recipeDetails);
+        recipeCard.appendChild(updateButton);
         recipeCard.appendChild(deleteButton);
         recipeContainer.appendChild(recipeCard);
     });
@@ -166,46 +177,60 @@ document.addEventListener("DOMContentLoaded", function () {
         const recipename = document.getElementById("recipename").value.trim();
         const recipe = document.getElementById("recipe").value.trim();
         const recipecategory = document.getElementById("category").value.trim();
-
-        if (!recipename || !recipe || !category) {
+    
+        if (!recipename || !recipe || !recipecategory) {
             alert("Please fill out all fields.");
             return;
         }
-
-        const newRecipe = {
+    
+        const recipeData = {
             recipename,
             recipe,
             recipecategory
         };
-
+    
         try {
             showLoading();
-            const response = await fetch("/api/v1/add-recipe", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newRecipe)
-            });
-
-            if (!response.ok) throw new Error("Failed to add recipe");
-
+    
+            let response;
+            if (editingRecipeId) {
+                // PATCH update
+                response = await fetch("/api/v1/update-recipe", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: editingRecipeId, ...recipeData })
+                });
+            } else {
+                // POST new
+                response = await fetch("/api/v1/add-recipe", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(recipeData)
+                });
+            }
+    
+            if (!response.ok) throw new Error("Failed to submit recipe");
+    
             showSuccessToast();
             modal.classList.add("hidden");
-
+    
             // Clear the form
             document.getElementById("recipename").value = "";
             document.getElementById("recipe").value = "";
             document.getElementById("category").value = "";
-            recipeTextarea.style.height = "auto"; // reset textarea height
-
+            document.getElementById("recipe").style.height = "auto"; // reset textarea height
+    
+            editingRecipeId = null; // reset after submission!
+    
             fetchRecipes();
             displayRecipes();
             hideLoading();
         } catch (error) {
-            console.error("Error adding recipe:", error);
-            alert("Could not add recipe. Check console.");
+            console.error("Error submitting recipe:", error);
+            alert("Could not submit recipe. Check console.");
             hideLoading();
         }
-    });
+    });    
 });
 
 
@@ -219,3 +244,30 @@ function showSuccessToast() {
         setTimeout(() => toast.classList.add("hidden"), 500);
     }, 2000);
 }
+
+function updateRecipe(recipeID) {
+    const recipes = JSON.parse(localStorage.getItem("recipes"));
+    const recipeToUpdate = recipes.find(recipe => recipe.id === recipeID);
+
+    if (!recipeToUpdate) {
+        alert("Recipe not found.");
+        return;
+    }
+
+    const modal = document.getElementById("importModal");
+    modal.classList.remove("hidden");
+    document.body.style.overflow = 'hidden';
+
+    const recipeNameInput = document.getElementById("recipename");
+    const recipeContentInput = document.getElementById("recipe");
+    const recipeCategoryInput = document.getElementById("category");
+
+    recipeNameInput.value = recipeToUpdate.recipename;
+    recipeContentInput.value = recipeToUpdate.recipe;
+    recipeCategoryInput.value = recipeToUpdate.category;
+
+    editingRecipeId = recipeID;
+
+    document.addEventListener("keydown", handleEscapeKey);
+}
+
