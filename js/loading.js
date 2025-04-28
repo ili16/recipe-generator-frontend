@@ -23,12 +23,10 @@ function showLoading() {
   }
   
   function hideLoading() {
-    const overlay = document.getElementById('overlay');
     const spinner = document.getElementById('loadingSpinner');
 
-    if (overlay && spinner) {
+    if (spinner) {
       spinner.style.display = 'none';
-      overlay.style.display = 'none';
       document.body.style.overflow = '';
       document.body.style.pointerEvents = 'auto';
     }

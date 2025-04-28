@@ -74,9 +74,14 @@ async function confirmDelete(recipeID, recipeElement) {
         removeRecipeFromLocalStorage(recipeID);
         closeConfirmation();
         hideLoading();
+        hideOverlay();
     } catch (error) {
         hideLoading();
+        hideOverlay();
         console.error("Error deleting recipe:", error);
+    } finally {
+        hideLoading();
+        hideOverlay();
     }
 }
 
@@ -222,16 +227,23 @@ document.addEventListener("DOMContentLoaded", function () {
     
             editingRecipeId = null; // reset after submission!
     
-            fetchRecipes();
+            await fetchRecipes();
             displayRecipes();
             hideLoading();
+            hideOverlay();
         } catch (error) {
             console.error("Error submitting recipe:", error);
             alert("Could not submit recipe. Check console.");
             hideLoading();
+            hideOverlay();
         }
-    });    
+    });
 });
+
+function hideOverlay() {
+    const overlay = document.getElementById("overlay");
+    overlay.style.display = 'none';
+}
 
 
 function showSuccessToast() {
