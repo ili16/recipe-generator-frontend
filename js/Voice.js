@@ -22,8 +22,9 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunks, { type: "audio/wav" }); // Change MIME type to audio/wav
-          const file = new File([audioBlob], "recording.wav", { type: "audio/wav" }); // Updated to .wav extension
+          const mimeType = mediaRecorder.mimeType || "audio/webm";
+          const audioBlob = new Blob(audioChunks, { type: mimeType });
+          const file = new File([audioBlob], "recording.webm", { type: mimeType });
         
           const dataTransfer = new DataTransfer();
           dataTransfer.items.add(file);
@@ -40,7 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         };
 
-        mediaRecorder.start();
+        mediaRecorder.start(1000); // fixes decoding error for recording on iOS
         toggleBtn.textContent = "⏹ Aufnahme stoppen";
         recording = true;
       } catch (error) {
