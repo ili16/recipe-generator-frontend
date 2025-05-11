@@ -46,17 +46,16 @@ async function submitRecipe({ endpoint, method = "POST", payload = null, fileInp
 }
 
 function submitByName() {
-  const recipename = document.getElementById("recipename").value.trim();
-  const details = document.getElementById("details").value.trim();
+  const recipedescription = document.getElementById("recipedescription").value.trim();
 
-  if (!recipename) {
-    alert("Recipe name is required.");
+  if (!recipedescription) {
+    alert("Recipe Description is required.");
     return;
   }
 
   submitRecipe({
-    endpoint: "generate/by-name",
-    payload: { Recipename: recipename, Details: details, IsGerman: isGerman }
+    endpoint: "generate/by-description",
+    payload: { RecipeDescription: recipedescription, IsGerman: isGerman }
   });
 }
 
