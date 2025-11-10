@@ -12,10 +12,11 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/keycloak-js@latest/dist/keycloak.min.js"></script>
 </head>
 
 <body>
-
+  <script src="keycloak.js"></script>
   <nav class="navbar navbar-expand-lg navbar-dark bg-success">
     <div class="container-fluid">
         <a class="navbar-brand" href="#">Recipe Generator</a>
@@ -36,6 +37,19 @@
                 <li class="nav-item">
                     <a class="nav-link" id="storageLink" href="#" target="_blank" rel="noopener noreferrer">Kochbuch</a>
                 </li>
+                <li class="nav-item dropdown" id="userDropdown" style="display: none;">
+                  <a class="nav-link dropdown-toggle text-white" href="#" id="navbarUserDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <span id="usernameDisplay">User</span>
+                  </a>
+                  <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarUserDropdown">
+                    <li><a class="dropdown-item" href="#" onclick="logout()">Logout</a></li>
+                  </ul>
+                </li>
+                
+                <li class="nav-item" id="loginContainer">
+                  <button class="btn btn-outline-light" id="loginbtn" onclick="login()">Login</button>
+                </li>                
+              </li>
             </ul>
         </div>
     </div>
@@ -124,73 +138,26 @@
     </div>
   </div>
 
-  <script src="login.js" async></script>
   <script src="navbar.js" defer></script>
   <script>
 
 
     document.getElementById("overlay").style.display = "none";
 
-    let isGerman = true;
+    if (sessionStorage.getItem("loggedIn") === "true") {
+      document.getElementById("loginContainer").style.display = "none";
+      document.getElementById("userDropdown").style.display = "block";
 
-    function toggleLanguage() {
-      if (isGerman) {
-        document.getElementById("languageToggleButton").innerText = "Zu deutsch wechseln";
-        document.getElementById("heading").innerText = "Recipe Generator";
-        document.getElementsByName("generateByName-details")[0].placeholder = "Add details or preferences";
-        document.getElementById("generateByName-Title").innerText = "Generate by Name";
-        document.getElementById("recipenameLabel").innerText = "Recipe Name:";
-        document.getElementById("detailsLabel").innerText = "Details (optional):";
-        document.getElementById("generateRecipeBtn").innerText = "Generate Recipe";
-        document.getElementById("generateByLinkTitle").innerText = "Generate by Link";
-        document.getElementById("urlLabel").innerText = "Recipe Link:";
-        document.getElementById("generateRecipeLinkBtn").innerText = "Generate Recipe";
-        document.getElementById("generateByImageTitle").innerText = "Generate by Image";
-        document.getElementById("dropZone").innerText = "Drag and drop an image here, or click to select one.";
-        document.getElementById("recipenameByImageLabel").innerText = "Recipe Name (optional):";
-        document.getElementById("generateRecipeImageBtn").innerText = "Generate Recipe";
-        document.getElementById("transformRecipeTitle").innerText = "Transform Recipe";
-        document.getElementById("transformRecipeNameLabel").innerText = "Recipe Name (optional):";
-        document.getElementById("recipeTextLabel").innerText = "Recipe Text:";
-        document.getElementById("transformRecipeBtn").innerText = "Transform Recipe";
-        document.getElementById("previewTitle").innerText = "Preview";
-        document.querySelector(".edit-btn").innerText = "Edit";
-        document.querySelector(".accept-btn").innerText = "Accept";
-        document.querySelector(".decline-btn").innerText = "Decline";
-        document.getElementById("navGenerate").innerText = "Generator";
-        document.getElementById("navRecipes").innerText = "My Recipes";
-        document.getElementById("navProfile").innerText = "Profile";
-      } else {
-        document.getElementById("languageToggleButton").innerText = "Switch to English";
-        document.getElementById("heading").innerText = "Rezept-Generator";
-        document.getElementById("generateByName-Title").innerText = "Generieren aus Name";
-        document.getElementsByName("generateByName-details")[0].placeholder = "Füge Details oder Vorlieben hinzu";
-        document.getElementById("recipenameLabel").innerText = "Rezeptname:";
-        document.getElementById("detailsLabel").innerText = "Details (optional):";
-        document.getElementById("generateRecipeBtn").innerText = "Rezept generieren";
-        document.getElementById("generateByLinkTitle").innerText = "Generieren aus Link";
-        document.getElementById("urlLabel").innerText = "Rezept-Link:";
-        document.getElementById("generateRecipeLinkBtn").innerText = "Rezept generieren";
-        document.getElementById("generateByImageTitle").innerText = "Generieren aus Bild";
-        document.getElementById("dropZone").innerText = "Bild auswählen";
-        document.getElementById("recipenameByImageLabel").innerText = "Rezeptname (optional):";
-        document.getElementById("generateRecipeImageBtn").innerText = "Rezept generieren";
-        document.getElementById("transformRecipeTitle").innerText = "Generieren aus Text";
-        document.getElementById("transformRecipeNameLabel").innerText = "Rezeptname (optional):";
-        document.getElementById("recipeTextLabel").innerText = "Rezept:";
-        document.getElementById("transformRecipeBtn").innerText = "Rezept generieren";
-        document.getElementById("previewTitle").innerText = "Vorschau";
-        document.querySelector(".edit-btn").innerText = "Bearbeiten";
-        document.querySelector(".accept-btn").innerText = "Akzeptieren";
-        document.querySelector(".decline-btn").innerText = "Abbrechen";
-        document.getElementById("navGenerate").innerText = "Generator";
-        document.getElementById("navRecipes").innerText = "Meine Rezepte";
-        document.getElementById("navProfile").innerText = "Profil";
-      }
-
-      isGerman = !isGerman;
+      const userInfo = JSON.parse(localStorage.getItem("userInfo"));
+      document.getElementById("usernameDisplay").textContent = sessionStorage.get
+      document.getElementById("storageLink").href = sessionStorage.getItem("storageLink");
+    } else {
+      document.getElementById("loginContainer").style.display = "block";
+      document.getElementById("userDropdown").style.display = "none";
+      document.getElementById("usernameDisplay").textContent = "User";
     }
 
+    let isGerman = true;
 
     function dragOverHandler(event) {
       event.preventDefault();

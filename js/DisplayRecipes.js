@@ -58,9 +58,12 @@ function deleteRecipe(recipeID, recipeElement) {
 async function confirmDelete(recipeID, recipeElement) {
     showLoading();
     try {
+        const token = await getValidToken();
+
         const response = await fetch(`${window.location.protocol}//${window.location.hostname}:${window.location.port}/api/v1/delete-recipe`, {
             method: 'DELETE',
             headers: {
+                'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ recipeID })
@@ -76,14 +79,13 @@ async function confirmDelete(recipeID, recipeElement) {
         hideLoading();
         hideOverlay();
     } catch (error) {
-        hideLoading();
-        hideOverlay();
         console.error("Error deleting recipe:", error);
     } finally {
         hideLoading();
         hideOverlay();
     }
 }
+
 
 
 function removeRecipeFromLocalStorage(recipeID) {
@@ -199,17 +201,23 @@ document.addEventListener("DOMContentLoaded", function () {
     
             let response;
             if (editingRecipeId) {
-                // PATCH update
+                const token = await getValidToken();
                 response = await fetch("/api/v1/update-recipe", {
                     method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': "application/json"
+                    },
                     body: JSON.stringify({ id: editingRecipeId, ...recipeData })
                 });
             } else {
-                // POST new
+                const token = await getValidToken();
                 response = await fetch("/api/v1/add-recipe", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': "application/json"
+                    },
                     body: JSON.stringify(recipeData)
                 });
             }
@@ -283,3 +291,12 @@ function updateRecipe(recipeID) {
     document.addEventListener("keydown", handleEscapeKey);
 }
 
+async function getValidToken() {
+    try {
+        await keycloak.updateToken(5); // refresh if expiring in next 5s
+        return keycloak.token;
+    } catch (err) {
+        console.error("Failed to refresh token", err);
+        throw new Error("Authentication error");
+    }
+}
