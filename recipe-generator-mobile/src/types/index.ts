@@ -2,9 +2,10 @@ export interface Recipe {
   id: number;
   recipename: string;
   recipe: string;
-  category?: string;
+  tags?: string[];
   createdAt?: string;
   structured?: RecipeDocument;
+  manually_edited?: boolean;
 }
 
 export interface RecipeGeneratePayload {
@@ -17,7 +18,7 @@ export interface RecipeDocument {
   title: string;
   summary?: string | null;
   language: string;
-  category: string;
+  tags: string[];
   servings?: number | null;
   prep_minutes?: number | null;
   cook_minutes?: number | null;
@@ -45,12 +46,53 @@ export interface RecipeResponse {
   structured?: RecipeDocument;
 }
 
-// PATCH /update-recipe - persist edits to a saved recipe
+// POST /refine-recipe response: a status envelope instead of always a new recipe, so
+// the backend can refuse a change that breaks the dish's identity, or ask the caller
+// to pick from a short list of substitutions, instead of silently guessing.
+export interface RefineResult {
+  status: 'applied' | 'rejected' | 'needs_choice';
+  message?: string;
+  options?: string[];
+  recipename?: string;
+  recipe?: string;
+  structured?: RecipeDocument;
+}
+
+// What the user originally handed the generator — carried through the review chat so
+// later edits (and the eventual save) stay traceable to the initial ask.
+export interface GenerationOrigin {
+  prompt: string;
+  source_type: 'text' | 'url' | 'image';
+  source_url?: string;
+}
+
+// One accepted edit in a refinement conversation: the instruction and the resulting
+// document. When persisted at save time, index 0 (change_prompt: '') stands for the
+// initial generation, not an edit.
+export interface EditTurn {
+  change_prompt: string;
+  structured: RecipeDocument;
+}
+
+// PATCH /update-recipe - persist edits to a saved recipe. ai_sourced omitted/false means a
+// manual edit (flags the recipe manually_edited); true clears that flag (an applied AI
+// refine result now backs the recipe instead). change_prompt is optional and, for an
+// ai_sourced update, is recorded as that edit's change_note in the recipe's history.
 export interface PatchRecipePayload {
   id: number;
-  recipename: string;
-  recipe: string;
-  category?: string;
+  structured: RecipeDocument;
+  ai_sourced?: boolean;
+  change_prompt?: string;
+}
+
+// GET /recipes/:id/history - one snapshot in a saved recipe's edit trail, newest first.
+// change_note carries the AI instruction for change_kind "ai_edit"; absent otherwise.
+export interface RecipeVersion {
+  version: number;
+  change_kind: 'extraction' | 'manual' | 'ai_edit' | 'import';
+  change_note?: string;
+  created_at: string;
+  data: RecipeDocument;
 }
 
 export interface CookingNote {
@@ -66,24 +108,3 @@ export interface UserProfile {
 }
 
 export type GenerateMethod = 'description' | 'link' | 'image' | 'voice';
-
-export interface ValidationFlag {
-  type: 'ingredient' | 'step';
-  idx: number;
-  item?: string;
-  message: string;
-  suggestion: string;
-}
-
-export interface ValidateChangesPayload {
-  recipe_name: string;
-  structured: RecipeDocument;
-  ingredient_removals: number[];
-  ingredient_comments: Record<string, string>;
-  step_comments: Record<string, string>;
-}
-
-export interface ValidateChangesResponse {
-  flags: ValidationFlag[];
-  can_proceed: boolean;
-}
