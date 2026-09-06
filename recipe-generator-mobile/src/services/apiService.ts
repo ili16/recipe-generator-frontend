@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import * as Localization from 'expo-localization';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, RefineResult, PatchRecipePayload, GenerationOrigin, EditTurn } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, RefineResult, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion } from '../types';
 import authService from './authService';
 
 class ApiService {
@@ -188,6 +188,11 @@ class ApiService {
 
   async getRecipeById(recipeId: number): Promise<Recipe> {
     const response = await this.client.get<Recipe>(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}`);
+    return response.data;
+  }
+
+  async getRecipeHistory(recipeId: number): Promise<RecipeVersion[]> {
+    const response = await this.client.get<RecipeVersion[]>(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/history`);
     return response.data;
   }
 

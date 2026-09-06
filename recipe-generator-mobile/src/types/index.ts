@@ -76,11 +76,23 @@ export interface EditTurn {
 
 // PATCH /update-recipe - persist edits to a saved recipe. ai_sourced omitted/false means a
 // manual edit (flags the recipe manually_edited); true clears that flag (an applied AI
-// refine result now backs the recipe instead).
+// refine result now backs the recipe instead). change_prompt is optional and, for an
+// ai_sourced update, is recorded as that edit's change_note in the recipe's history.
 export interface PatchRecipePayload {
   id: number;
   structured: RecipeDocument;
   ai_sourced?: boolean;
+  change_prompt?: string;
+}
+
+// GET /recipes/:id/history - one snapshot in a saved recipe's edit trail, newest first.
+// change_note carries the AI instruction for change_kind "ai_edit"; absent otherwise.
+export interface RecipeVersion {
+  version: number;
+  change_kind: 'extraction' | 'manual' | 'ai_edit' | 'import';
+  change_note?: string;
+  created_at: string;
+  data: RecipeDocument;
 }
 
 export interface CookingNote {

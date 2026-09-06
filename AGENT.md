@@ -85,13 +85,14 @@ Do not bypass this pattern when adding new authenticated calls.
 |--------|------|---------------|------|--------|
 | POST | `generate` | `FormData` (description \| url \| image, + `language` from `expo-localization`) | optional | `RecipeResponse` |
 | POST | `update-recipe` | `{recipe, changePrompt}` | required | `RecipeResponse` |
-| PATCH | `update-recipe` | `{id, structured, ai_sourced?}` | required | `Recipe` |
+| PATCH | `update-recipe` | `{id, structured, ai_sourced?, change_prompt?}` | required | `Recipe` |
 | GET | `get-recipes` | — | required | `Recipe[]` |
 | POST | `add-recipe` | `{recipename, recipe, category?, structured?}` | required | `Recipe` |
 | DELETE | `delete-recipe/:id` | — | required | `204` |
 | POST | `suggest` | `{input}` | none | `{suggestion}` |
 | POST | `suggest-prefs` | `{input}` | none | `{questions[]}` |
 | POST | `refine-recipe` | `{recipe, structured, change_prompt}` | optional | `RecipeResponse` |
+| GET | `recipes/:id/history` | — | required | `RecipeVersion[]` (newest first; `change_note` holds the AI prompt for `ai_edit` entries) |
 
 The backend provisions users just-in-time from the JWT `sub` claim; there is no separate signup endpoint.
 
@@ -102,6 +103,7 @@ The backend provisions users just-in-time from the JWT `sub` claim; there is no 
 - `RecipeResponse` — `{recipename, recipe, structured?}` — generation endpoint response
 - `UpdateRecipePayload` — POST body for AI reprompt
 - `PatchRecipePayload` — PATCH body for manual edits
+- `RecipeVersion` — `{version, change_kind, change_note?, created_at, data}` — one entry from `GET recipes/:id/history`
 - `UserProfile` — `{name, email?, username?}`
 
 ## GenerateScreen Internals

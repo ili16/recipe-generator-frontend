@@ -9,10 +9,11 @@ import {
   RefreshControl,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import apiService from '../services/apiService';
 import authService from '../services/authService';
-import { Recipe, RecipeDocument } from '../types';
+import { Recipe, RecipeDocument, RecipeVersion } from '../types';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
 import { useEscapeBack } from '../hooks/useEscapeBack';
@@ -21,6 +22,50 @@ import { TAGS_BY_GROUP, TAG_GROUP_LABELS, TAG_LABEL_BY_SLUG, TagGroup } from '..
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Recipes'>;
 type SortMode = 'recent' | 'name';
+
+const CHANGE_KIND_ICON: Record<RecipeVersion['change_kind'], React.ComponentProps<typeof Ionicons>['name']> = {
+  extraction: 'add-circle-outline',
+  import: 'add-circle-outline',
+  manual: 'create-outline',
+  ai_edit: 'sparkles-outline',
+};
+
+const CHANGE_KIND_LABEL: Record<RecipeVersion['change_kind'], string> = {
+  extraction: 'Created',
+  import: 'Imported',
+  manual: 'Manual edit',
+  ai_edit: 'AI edit',
+};
+
+// One-line, human summary of what changed between two consecutive snapshots. entries are
+// newest-first (as returned by the history endpoint), so `prev` is the chronologically
+// earlier one at index+1.
+function summarizeVersionChange(curr: RecipeDocument, prev?: RecipeDocument): string {
+  if (!prev) return 'Initial version';
+  const changes: string[] = [];
+  if (curr.title !== prev.title) changes.push(`Renamed to "${curr.title}"`);
+  if (curr.servings !== prev.servings) changes.push(`Servings ${prev.servings ?? '—'} → ${curr.servings ?? '—'}`);
+  if (curr.prep_minutes !== prev.prep_minutes) changes.push(`Prep ${prev.prep_minutes ?? '—'} → ${curr.prep_minutes ?? '—'} min`);
+  if (curr.cook_minutes !== prev.cook_minutes) changes.push(`Cook ${prev.cook_minutes ?? '—'} → ${curr.cook_minutes ?? '—'} min`);
+  if (curr.difficulty !== prev.difficulty) changes.push('Difficulty changed');
+  if ((curr.summary ?? '') !== (prev.summary ?? '')) changes.push('Summary updated');
+
+  const prevIngredients = new Set(prev.ingredients.map(i => i.item.trim().toLowerCase()));
+  const currIngredients = new Set(curr.ingredients.map(i => i.item.trim().toLowerCase()));
+  const added = [...currIngredients].filter(i => !prevIngredients.has(i)).length;
+  const removed = [...prevIngredients].filter(i => !currIngredients.has(i)).length;
+  if (added) changes.push(`+${added} ingredient${added > 1 ? 's' : ''}`);
+  if (removed) changes.push(`-${removed} ingredient${removed > 1 ? 's' : ''}`);
+
+  if (curr.steps.length !== prev.steps.length) {
+    const diff = curr.steps.length - prev.steps.length;
+    changes.push(`${diff > 0 ? '+' : ''}${diff} step${Math.abs(diff) > 1 ? 's' : ''}`);
+  } else if (curr.steps.some((s, i) => s.step_text !== prev.steps[i]?.step_text)) {
+    changes.push('Steps updated');
+  }
+
+  return changes.length ? changes.join(' · ') : 'Minor edit';
+}
 
 const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -38,6 +83,9 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   const [refiningId, setRefiningId] = useState<number | null>(null);
   const [refinePrompt, setRefinePrompt] = useState('');
   const [refineLoading, setRefineLoading] = useState(false);
+  const [historyId, setHistoryId] = useState<number | null>(null);
+  const [historyEntries, setHistoryEntries] = useState<RecipeVersion[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const { theme } = useTheme();
   const { showAlert, confirmAction } = useAlert();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -148,11 +196,32 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     setEditDoc(JSON.parse(JSON.stringify(doc)));
     setEditingId(recipe.id);
     setRefiningId(null);
+    setHistoryId(null);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditDoc(null);
+  };
+
+  const openHistory = async (recipe: Recipe) => {
+    if (historyId === recipe.id) {
+      setHistoryId(null);
+      return;
+    }
+    setEditingId(null);
+    setRefiningId(null);
+    setHistoryId(recipe.id);
+    setHistoryLoading(true);
+    try {
+      const entries = await apiService.getRecipeHistory(recipe.id);
+      setHistoryEntries(entries);
+    } catch {
+      showAlert('Error', 'Failed to load edit history');
+      setHistoryEntries([]);
+    } finally {
+      setHistoryLoading(false);
+    }
   };
 
   const updateDoc = (patch: Partial<RecipeDocument>) => {
@@ -253,7 +322,9 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
         );
         if (!ok) return;
       }
-      const updated = await apiService.patchRecipe({ id: recipe.id, structured: result.structured, ai_sourced: true });
+      const updated = await apiService.patchRecipe({
+        id: recipe.id, structured: result.structured, ai_sourced: true, change_prompt: refinePrompt.trim(),
+      });
       setRecipes(prev => prev.map(r => (r.id === updated.id ? updated : r)));
       setRefinePrompt('');
       setRefiningId(null);
@@ -397,8 +468,9 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                   {((recipe.tags ?? []).length > 0 || recipe.manually_edited) && (
                     <View style={styles.tagBadgeRow}>
                       {recipe.manually_edited && (
-                        <View style={styles.tagBadge}>
-                          <Text style={styles.tagBadgeText}>✎ Manually edited</Text>
+                        <View style={[styles.tagBadge, styles.tagBadgeRowInner]}>
+                          <Ionicons name="create-outline" size={11} color={theme.accent} style={{ marginRight: 3 }} />
+                          <Text style={styles.tagBadgeText}>Manually edited</Text>
                         </View>
                       )}
                       {(recipe.tags ?? []).map(slug => (
@@ -409,9 +481,12 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                     </View>
                   )}
                 </View>
-                <Text style={styles.expandIcon}>
-                  {expandedId === recipe.id ? '▼' : '▶'}
-                </Text>
+                <Ionicons
+                  name={expandedId === recipe.id ? 'chevron-down' : 'chevron-forward'}
+                  size={16}
+                  color={theme.subtext}
+                  style={styles.expandIcon}
+                />
               </TouchableOpacity>
 
               {expandedId === recipe.id && (
@@ -502,7 +577,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                               <Text style={[styles.optionalToggleText, ing.optional && styles.optionalToggleTextOn]}>opt</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={styles.removeRowButton} onPress={() => removeIngredient(idx)}>
-                              <Text style={styles.removeRowButtonText}>✕</Text>
+                              <Ionicons name="close" size={13} color={theme.muted} />
                             </TouchableOpacity>
                           </View>
                         ))}
@@ -516,7 +591,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                             <View style={styles.stepEditHeader}>
                               <Text style={styles.stepEditNumber}>{idx + 1}.</Text>
                               <TouchableOpacity style={styles.removeRowButton} onPress={() => removeStep(idx)}>
-                                <Text style={styles.removeRowButtonText}>✕</Text>
+                                <Ionicons name="close" size={13} color={theme.muted} />
                               </TouchableOpacity>
                             </View>
                             <TextInput
@@ -617,29 +692,66 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                         </View>
                       )}
 
+                      {historyId === recipe.id && (
+                        <View style={styles.historyBox}>
+                          {historyLoading ? (
+                            <Text style={styles.historyEmptyText}>Loading history…</Text>
+                          ) : historyEntries.length === 0 ? (
+                            <Text style={styles.historyEmptyText}>No edit history yet.</Text>
+                          ) : (
+                            <ScrollView style={styles.historyScroll} nestedScrollEnabled>
+                              {historyEntries.map((entry, idx) => (
+                                <View key={entry.version} style={styles.historyEntry}>
+                                  <View style={styles.historyEntryHeader}>
+                                    <Ionicons name={CHANGE_KIND_ICON[entry.change_kind]} size={13} color={theme.accent} style={{ marginRight: 6 }} />
+                                    <Text style={styles.historyKind}>{CHANGE_KIND_LABEL[entry.change_kind]}</Text>
+                                    <Text style={styles.historyDate}>{new Date(entry.created_at).toLocaleString()}</Text>
+                                  </View>
+                                  <Text style={styles.historySummary}>
+                                    {summarizeVersionChange(entry.data, historyEntries[idx + 1]?.data)}
+                                  </Text>
+                                  {entry.change_note ? (
+                                    <Text style={styles.historyNote}>“{entry.change_note}”</Text>
+                                  ) : null}
+                                </View>
+                              ))}
+                            </ScrollView>
+                          )}
+                        </View>
+                      )}
+
                       <View style={styles.cardActions}>
                         <TouchableOpacity style={styles.cookButton} onPress={() => startEdit(recipe)}>
-                          <Text style={styles.cookButtonText}>✎ Edit</Text>
+                          <Ionicons name="create-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
+                          <Text style={styles.cookButtonText}>Edit</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.cookButton}
                           onPress={() => {
+                            setHistoryId(null);
                             setRefiningId(prev => (prev === recipe.id ? null : recipe.id));
                             setRefinePrompt('');
                           }}
                         >
-                          <Text style={styles.cookButtonText}>✨ Refine with AI</Text>
+                          <Ionicons name="sparkles-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
+                          <Text style={styles.cookButtonText}>Refine with AI</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.cookButton} onPress={() => openHistory(recipe)}>
+                          <Ionicons name="time-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
+                          <Text style={styles.cookButtonText}>History</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.cookButton}
                           onPress={() => navigation.navigate('CookingMode', { recipe })}
                         >
-                          <Text style={styles.cookButtonText}>🍳 Cook</Text>
+                          <Ionicons name="flame-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
+                          <Text style={styles.cookButtonText}>Cook</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.deleteButton}
                           onPress={() => handleDelete(recipe.id)}
                         >
+                          <Ionicons name="trash-outline" size={14} color="#fff" style={{ marginRight: 6 }} />
                           <Text style={styles.deleteButtonText}>Delete</Text>
                         </TouchableOpacity>
                       </View>
@@ -827,6 +939,10 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     borderRadius: 10,
     backgroundColor: t.accentFaded,
   },
+  tagBadgeRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   tagBadgeText: {
     fontSize: 11,
     color: t.accent,
@@ -994,29 +1110,76 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginBottom: 15,
     gap: 8,
   },
+  historyBox: {
+    marginBottom: 15,
+  },
+  historyEmptyText: {
+    fontSize: 13,
+    color: t.muted,
+    fontStyle: 'italic',
+  },
+  historyScroll: {
+    maxHeight: 260,
+  },
+  historyEntry: {
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: t.hairline,
+  },
+  historyEntryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
+  historyKind: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: t.text,
+    flex: 1,
+  },
+  historyDate: {
+    fontSize: 11,
+    color: t.muted,
+  },
+  historySummary: {
+    fontSize: 13,
+    color: t.subtext,
+  },
+  historyNote: {
+    fontSize: 12,
+    color: t.muted,
+    fontStyle: 'italic',
+    marginTop: 3,
+  },
   cookButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: t.surface,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: t.accent,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
   },
   cookButtonText: {
     color: t.accent,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
+    letterSpacing: 0.2,
   },
   deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: t.accent,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
   },
   deleteButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
+    letterSpacing: 0.2,
   },
   skipButton: {
     marginTop: 15,
