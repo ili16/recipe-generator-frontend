@@ -28,7 +28,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, Theme } from '../context/ThemeContext';
-import { RecipeDocument, ValidationFlag } from '../types';
+import { RecipeDocument, GenerationOrigin, EditTurn } from '../types';
 import { SUGGEST_DEBOUNCE_MS } from '../constants';
 import { useAlert } from '../context/AlertContext';
 
@@ -37,7 +37,8 @@ type InputMode = 'text' | 'url' | 'image' | 'voice';
 type QType = 'either-or' | 'add-on';
 
 interface ClarifyQuestion { id: string; type: QType; label: string; options: string[] }
-interface ItemDiff { originalText: string; updated: string; originalIng?: RecipeDocument['ingredients'][number]; originalStep?: RecipeDocument['steps'][number] }
+interface DocSnapshot { recipe: string; recipeName: string; structuredDoc: RecipeDocument | null }
+interface ApplyResult { message: string; options: string[] }
 
 const { height } = Dimensions.get('window');
 
@@ -94,24 +95,19 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
   // Recipe review
   const [editableIngredients, setEditableIngredients] = useState<RecipeDocument['ingredients']>([]);
   const [editableSteps, setEditableSteps] = useState<RecipeDocument['steps']>([]);
-  // Per-item notes fed to the LLM on "Apply changes"
-  const [ingredientNotes, setIngredientNotes] = useState<Record<number, string>>({});
-  const [stepNotes, setStepNotes] = useState<Record<number, string>>({});
-  const [noteOpen, setNoteOpen] = useState<{ type: 'ing' | 'step'; idx: number } | null>(null);
-  const [refineText, setRefineText] = useState('');
-  // Per-item in-place update state
-  const [itemLoading, setItemLoading] = useState<Record<string, boolean>>({});
-  const [itemDiffs, setItemDiffs] = useState<Record<string, ItemDiff>>({});
 
-  // Soft-delete + step Q&A + validation
-  const [deletedIngredients, setDeletedIngredients] = useState<Set<number>>(new Set());
-  const [stepQuestions, setStepQuestions] = useState<Record<number, string>>({});
-  const [stepAnswers, setStepAnswers] = useState<Record<number, string>>({});
-  const [stepQuestionLoading, setStepQuestionLoading] = useState<Record<number, boolean>>({});
-  const [questionOpen, setQuestionOpen] = useState<{ type: 'ing' | 'step'; idx: number } | null>(null);
-  const [validationFlags, setValidationFlags] = useState<ValidationFlag[]>([]);
-  const [showValidationModal, setShowValidationModal] = useState(false);
-  const [pendingApplyCtx, setPendingApplyCtx] = useState<{ removals: number[]; ingComments: Record<number, string>; stepComments: Record<number, string> } | null>(null);
+  // Apply-changes pane: mark ingredients to remove, add optional context, apply once
+  const [markedForRemoval, setMarkedForRemoval] = useState<Set<number>>(new Set());
+  const [extraContext, setExtraContext] = useState('');
+  const [applyPending, setApplyPending] = useState(false);
+  const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
+  const [docHistory, setDocHistory] = useState<DocSnapshot[]>([]);
+
+  // Full generation conversation, kept alive for the length of the review session so
+  // refinements (and the eventual save) stay traceable to the original ask.
+  const [origin, setOrigin] = useState<GenerationOrigin | null>(null);
+  const [initialStructuredDoc, setInitialStructuredDoc] = useState<RecipeDocument | null>(null);
+  const [editHistory, setEditHistory] = useState<EditTurn[]>([]);
 
   // Recently saved
   const [recentlySaved, setRecentlySaved] = useState<{ id: number; name: string } | null>(null);
@@ -313,6 +309,7 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
   useEffect(() => {
     if (structuredDoc?.ingredients) setEditableIngredients([...structuredDoc.ingredients]);
     if (structuredDoc?.steps)       setEditableSteps([...structuredDoc.steps]);
+    setMarkedForRemoval(new Set());
   }, [structuredDoc]);
 
   const expand = () => {
@@ -360,164 +357,71 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
   const resetReview = () => {
     setRecipe(null); setRecipeName(null); setStructuredDoc(null);
     setEditableIngredients([]); setEditableSteps([]);
-    setIngredientNotes({}); setStepNotes({});
-    setNoteOpen(null); setRefineText('');
-    setItemLoading({}); setItemDiffs({});
-    setDeletedIngredients(new Set());
-    setStepQuestions({}); setStepAnswers({}); setStepQuestionLoading({});
-    setQuestionOpen(null); setValidationFlags([]);
-    setShowValidationModal(false); setPendingApplyCtx(null);
+    setMarkedForRemoval(new Set()); setExtraContext(''); setApplyPending(false); setApplyResult(null);
+    setDocHistory([]);
+    setOrigin(null); setInitialStructuredDoc(null); setEditHistory([]);
   };
 
-  const toggleNote = (type: 'ing' | 'step', idx: number) => {
-    if (questionOpen?.type === type && questionOpen.idx === idx) setQuestionOpen(null);
-    setNoteOpen(prev => (prev?.type === type && prev.idx === idx) ? null : { type, idx });
+  const toggleMarkedForRemoval = (idx: number) => {
+    setMarkedForRemoval(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
   };
 
-  const toggleQuestion = (type: 'ing' | 'step', idx: number) => {
-    if (noteOpen?.type === type && noteOpen.idx === idx) setNoteOpen(null);
-    setQuestionOpen(prev => (prev?.type === type && prev.idx === idx) ? null : { type, idx });
-  };
+  // Apply every marked removal plus optional context as one instruction; the backend
+  // regenerates the full structured document so ingredients/steps stay consistent with
+  // each other. It may also refuse (status "rejected") or ask us to pick a substitution
+  // (status "needs_choice") instead of applying — chosenOption re-submits with that pick.
+  const applyChanges = async (chosenOption?: string) => {
+    if (!recipe || !origin || !initialStructuredDoc || applyPending) return;
+    const removed = editableIngredients.filter((_, i) => markedForRemoval.has(i)).map(fmtIngredient);
+    if (removed.length === 0 && !extraContext.trim() && !chosenOption) return;
 
-  const handleAskStepQuestion = async (idx: number) => {
-    const question = stepQuestions[idx]?.trim();
-    if (!question) return;
-    setStepQuestionLoading(prev => ({ ...prev, [idx]: true }));
-    setQuestionOpen(null);
+    const parts: string[] = [];
+    if (removed.length > 0) parts.push(`Remove: ${removed.join(', ')}.`);
+    if (chosenOption) parts.push(chosenOption);
+    if (extraContext.trim()) parts.push(extraContext.trim());
+    const instruction = parts.join(' ');
+
+    setDocHistory(prev => [...prev, { recipe: recipe!, recipeName: recipeName ?? '', structuredDoc }]);
+    setApplyPending(true);
+    setApplyResult(null);
     try {
-      const answer = await apiService.askStep(recipeName ?? '', editableSteps[idx].step_text, question);
-      setStepAnswers(prev => ({ ...prev, [idx]: answer }));
+      const result = await apiService.refineRecipe(origin, initialStructuredDoc, editHistory, instruction);
+      if (result.status !== 'applied' || !result.structured) {
+        setDocHistory(prev => prev.slice(0, -1));
+        setApplyResult({ message: result.message ?? "Couldn't apply that change.", options: result.options ?? [] });
+        return;
+      }
+      setRecipe(result.recipe!);
+      setRecipeName(result.recipename!);
+      setStructuredDoc(result.structured);
+      setEditHistory(prev => [...prev, { change_prompt: instruction, structured: result.structured! }]);
+      setMarkedForRemoval(new Set());
+      setExtraContext('');
+      setApplyResult(null);
+    } catch {
+      setDocHistory(prev => prev.slice(0, -1));
+      setApplyResult({ message: "Sorry, couldn't apply that. Try again.", options: [] });
     } finally {
-      setStepQuestionLoading(prev => { const n = { ...prev }; delete n[idx]; return n; });
+      setApplyPending(false);
     }
   };
 
-  const undoItemDiff = (key: string) => {
-    const diff = itemDiffs[key];
-    if (!diff) return;
-    if (key.startsWith('ing-')) {
-      const idx = parseInt(key.slice(4), 10);
-      if (diff.originalIng) setEditableIngredients(prev => prev.map((ing, i) => i === idx ? diff.originalIng! : ing));
-    } else {
-      const idx = parseInt(key.slice(5), 10);
-      if (diff.originalStep) setEditableSteps(prev => prev.map((s, i) => i === idx ? diff.originalStep! : s));
-    }
-    setItemDiffs(prev => { const n = { ...prev }; delete n[key]; return n; });
-  };
-
-  // Execute per-item LLM updates after validation clears.
-  const _executeApplyChanges = async (removals: number[], ingComments: Record<number, string>, stepComments: Record<number, string>) => {
-    const context = `${recipeName ?? ''}. ${refineText.trim()}`.trim();
-    const ingSnap = [...editableIngredients];
-    const stepSnap = [...editableSteps];
-    const tasks: Array<{ key: string; type: 'ing' | 'step'; idx: number; current: string; instruction: string }> = [];
-
-    ingSnap.forEach((ing, idx) => {
-      if (removals.includes(idx)) return;
-      const note = ingComments[idx];
-      if (note) tasks.push({ key: `ing-${idx}`, type: 'ing', idx, current: fmtIngredient(ing), instruction: note });
+  const handleUndoChat = () => {
+    setDocHistory(prev => {
+      if (prev.length === 0) return prev;
+      const snapshot = prev[prev.length - 1];
+      setRecipe(snapshot.recipe);
+      setRecipeName(snapshot.recipeName);
+      setStructuredDoc(snapshot.structuredDoc);
+      setEditHistory(hist => hist.slice(0, -1));
+      setApplyResult(null);
+      return prev.slice(0, -1);
     });
-    stepSnap.forEach((s, idx) => {
-      const note = stepComments[idx];
-      if (note) tasks.push({ key: `step-${idx}`, type: 'step', idx, current: s.step_text, instruction: note });
-    });
-
-    setIngredientNotes({}); setStepNotes({});
-    setNoteOpen(null); setRefineText('');
-
-    // Run LLM updates before applying removals so indices remain valid
-    if (tasks.length > 0) {
-      setItemLoading(Object.fromEntries(tasks.map(t => [t.key, true])));
-      await Promise.all(tasks.map(async ({ key, type, idx, current, instruction }) => {
-        try {
-          const updated = await apiService.updateItem(current, instruction, context);
-          if (type === 'ing') {
-            setItemDiffs(prev => ({ ...prev, [key]: { originalText: current, updated, originalIng: ingSnap[idx] } }));
-            setEditableIngredients(prev => prev.map((ing, i) => i === idx ? { ...ing, item: updated, quantity: null, quantity_text: null, unit: null } : ing));
-          } else {
-            setItemDiffs(prev => ({ ...prev, [key]: { originalText: current, updated, originalStep: stepSnap[idx] } }));
-            setEditableSteps(prev => prev.map((s, i) => i === idx ? { ...s, step_text: updated } : s));
-          }
-        } finally {
-          setItemLoading(prev => { const n = { ...prev }; delete n[key]; return n; });
-        }
-      }));
-    }
-
-    if (removals.length > 0) {
-      setEditableIngredients(prev => prev.filter((_, i) => !removals.includes(i)));
-      setDeletedIngredients(new Set());
-    }
   };
-
-  // Validate changes with AI, then execute.
-  const handleApplyChanges = async () => {
-    if (!structuredDoc) return;
-
-    const ingComments: Record<number, string> = {};
-    Object.entries(ingredientNotes).forEach(([k, v]) => { if (v.trim()) ingComments[+k] = v.trim(); });
-    const stepComments: Record<number, string> = {};
-    Object.entries(stepNotes).forEach(([k, v]) => { if (v.trim()) stepComments[+k] = v.trim(); });
-    const removals = Array.from(deletedIngredients);
-    const globalRefine = refineText.trim();
-
-    const hasPerItemChanges = removals.length > 0 || Object.keys(ingComments).length > 0 || Object.keys(stepComments).length > 0;
-
-    if (!hasPerItemChanges && !globalRefine) {
-      showAlert('Add a change first', 'Mark ingredients for removal or add notes to ingredients or steps.');
-      return;
-    }
-
-    // Global-only refine: re-generate the whole recipe without per-item validation
-    if (!hasPerItemChanges && globalRefine) {
-      setLoading(true); setLoadingMessage('✨ Applying changes…');
-      try {
-        const result = await apiService.refineRecipe(recipe!, structuredDoc, globalRefine);
-        setRecipe(result.recipe);
-        setRecipeName(result.recipename);
-        setStructuredDoc(result.structured ?? null);
-        setRefineText('');
-        setItemDiffs({}); setItemLoading({});
-        setIngredientNotes({}); setStepNotes({});
-        setNoteOpen(null); setDeletedIngredients(new Set());
-        setStepAnswers({}); setStepQuestions({});
-      } catch { showAlert('Error', 'Failed to apply changes. Please try again.'); }
-      finally { setLoading(false); }
-      return;
-    }
-
-    // Per-item changes: validate first
-    setLoading(true); setLoadingMessage('🔍 Reviewing your changes…');
-    let flags: ValidationFlag[] = [];
-    try {
-      const validation = await apiService.validateChanges({
-        recipe_name: recipeName ?? '',
-        structured: structuredDoc,
-        ingredient_removals: removals,
-        ingredient_comments: Object.fromEntries(Object.entries(ingComments).map(([k, v]) => [String(k), v])),
-        step_comments: Object.fromEntries(Object.entries(stepComments).map(([k, v]) => [String(k), v])),
-      });
-      flags = validation.flags;
-    } catch { /* validation failure is non-blocking */ }
-    finally { setLoading(false); }
-
-    if (flags.length > 0) {
-      setValidationFlags(flags);
-      setPendingApplyCtx({ removals, ingComments, stepComments });
-      setShowValidationModal(true);
-      return;
-    }
-
-    await _executeApplyChanges(removals, ingComments, stepComments);
-  };
-
-  // Build LLM refine prompt from removals + per-item notes + refineText
-  const handleRefine = handleApplyChanges;
-
-  const hasChanges = deletedIngredients.size > 0
-    || Object.values(ingredientNotes).some(n => n.trim())
-    || Object.values(stepNotes).some(n => n.trim())
-    || refineText.trim().length > 0;
 
   const handleGenerate = async () => {
     if (inputMode === 'url') {
@@ -526,6 +430,8 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
       try {
         const r = await apiService.generateByLink(urlInput.trim());
         setRecipe(r.recipe); setRecipeName(r.recipename); setStructuredDoc(r.structured ?? null);
+        setOrigin({ prompt: urlInput.trim(), source_type: 'url', source_url: urlInput.trim() });
+        setInitialStructuredDoc(r.structured ?? null); setEditHistory([]);
         setUrlInput(''); setInputMode('text'); setIsFocused(false);
       } catch { showAlert('No recipe found', 'Could not extract a recipe from that URL. Make sure it links directly to a recipe page.'); }
       finally { setLoading(false); }
@@ -537,6 +443,8 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
       try {
         const r = await apiService.generateByImage(selectedImage.uri);
         setRecipe(r.recipe); setRecipeName(r.recipename); setStructuredDoc(r.structured ?? null);
+        setOrigin({ prompt: '', source_type: 'image' });
+        setInitialStructuredDoc(r.structured ?? null); setEditHistory([]);
         setSelectedImage(null); setInputMode('text'); setIsFocused(false);
       } catch { showAlert('Error', 'Failed to generate recipe from image'); }
       finally { setLoading(false); }
@@ -548,6 +456,8 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const r = await apiService.generateByDescription(description);
       setRecipe(r.recipe); setRecipeName(r.recipename); setStructuredDoc(r.structured ?? null);
+      setOrigin({ prompt: description, source_type: 'text' });
+      setInitialStructuredDoc(r.structured ?? null); setEditHistory([]);
       setInputText(''); setIsFocused(false); setInputMode('text'); setClarifyAnswers({});
       prefsAnim.setValue(0); setShowPrefs(false); setDynamicPrefs([]);
     } catch { showAlert('Error', 'Failed to generate recipe. Please try again.'); }
@@ -729,10 +639,24 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
     if (!recipe || !recipeName) return;
     setLoading(true); setLoadingMessage('💾 Saving recipe...');
     try {
-      const saved = await apiService.saveRecipe(recipeName, recipe, undefined, structuredDoc ?? undefined);
+      const history: EditTurn[] | undefined = initialStructuredDoc
+        ? [{ change_prompt: '', structured: initialStructuredDoc }, ...editHistory]
+        : undefined;
+      const saved = await apiService.saveRecipe(
+        recipeName, recipe, undefined, structuredDoc ?? undefined, origin ?? undefined, history
+      );
       setRecentlySaved({ id: saved.id, name: saved.recipename });
       resetReview();
-    } catch { showAlert('Error', 'Failed to save recipe'); }
+    } catch (error: any) {
+      if (error?.response?.status === 401) {
+        await authService.logout();
+        setIsAuthenticated(false);
+        showAlert('Session expired', 'Please sign in again to save this recipe.');
+        setShowSignIn(true);
+      } else {
+        showAlert('Error', 'Failed to save recipe');
+      }
+    }
     finally { setLoading(false); }
   };
 
@@ -961,64 +885,21 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
 
                   <Text style={styles.sectionLabel}>Ingredients</Text>
                   {editableIngredients.map((ing, idx) => {
-                    const key = `ing-${idx}`;
-                    const isLoading = !!itemLoading[key];
-                    const diff = itemDiffs[key];
+                    const marked = markedForRemoval.has(idx);
                     return (
                     <View key={idx} style={styles.ingRow}>
-                      <View style={styles.ingRowMain}>
-                        {isLoading
-                          ? <ActivityIndicator size="small" color={theme.accent} style={styles.ingBulletSlot} />
-                          : <View style={[styles.ingBullet, diff && styles.ingBulletDiff]} />
-                        }
-                        {diff ? (
-                          <View style={styles.diffInline}>
-                            <Text style={styles.diffOldText}>{diff.originalText}</Text>
-                            <Text style={styles.diffArrow}> → </Text>
-                            <Text style={styles.diffNewText}>{diff.updated}</Text>
-                          </View>
-                        ) : (
-                          <Text style={[styles.ingText, deletedIngredients.has(idx) && styles.ingTextDeleted]}>{fmtIngredient(ing)}{ing.optional ? <Text style={styles.optLabel}>  optional</Text> : null}</Text>
-                        )}
-                        {!isLoading && (
-                          diff ? (
-                            <TouchableOpacity onPress={() => undoItemDiff(key)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={styles.ingAction}>
-                              <Ionicons name="arrow-undo-outline" size={14} color={theme.muted} />
-                            </TouchableOpacity>
-                          ) : (
-                            <>
-                              <TouchableOpacity onPress={() => toggleNote('ing', idx)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={[styles.ingAction, noteOpen?.type === 'ing' && noteOpen.idx === idx && styles.ingActionActive]}>
-                                <Ionicons name="chatbubble-outline" size={14} color={noteOpen?.type === 'ing' && noteOpen.idx === idx ? theme.accent : theme.muted} />
-                              </TouchableOpacity>
-                              {deletedIngredients.has(idx) ? (
-                                <TouchableOpacity onPress={() => setDeletedIngredients(prev => { const n = new Set(prev); n.delete(idx); return n; })} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={styles.ingAction}>
-                                  <Ionicons name="arrow-undo-outline" size={14} color={theme.accent} />
-                                </TouchableOpacity>
-                              ) : (
-                                <TouchableOpacity onPress={() => setDeletedIngredients(prev => { const n = new Set(prev); n.add(idx); return n; })} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={styles.ingAction}>
-                                  <Ionicons name="close" size={16} color={theme.muted} />
-                                </TouchableOpacity>
-                              )}
-                            </>
-                          )
-                        )}
-                      </View>
-                      {noteOpen?.type === 'ing' && noteOpen.idx === idx && (
-                        <TextInput
-                          style={[styles.noteInput, { outlineStyle: 'none' } as any]}
-                          placeholder='e.g. "skip this" or "replace with X"'
-                          placeholderTextColor={theme.muted}
-                          value={ingredientNotes[idx] ?? ''}
-                          onChangeText={v => setIngredientNotes(prev => ({ ...prev, [idx]: v }))}
-                          selectionColor={theme.accent}
-                          returnKeyType="done"
-                          onSubmitEditing={() => setNoteOpen(null)}
-                          autoFocus
-                        />
-                      )}
-                      {ingredientNotes[idx]?.trim() && !(noteOpen?.type === 'ing' && noteOpen.idx === idx) && (
-                        <Text style={styles.notePreview}>→ {ingredientNotes[idx]}</Text>
-                      )}
+                      <View style={styles.ingBullet} />
+                      <Text style={[styles.ingText, marked && styles.ingTextMarked]}>
+                        {fmtIngredient(ing)}{ing.optional ? <Text style={styles.optLabel}>  optional</Text> : null}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => toggleMarkedForRemoval(idx)}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        style={[styles.ingAction, marked && styles.ingActionMarked]}
+                        disabled={applyPending}
+                      >
+                        <Ionicons name="close" size={16} color={marked ? '#fff' : theme.muted} />
+                      </TouchableOpacity>
                     </View>
                     );
                   })}
@@ -1027,102 +908,17 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
                 {/* ── Right / bottom: steps ── */}
                 <ScrollView style={[styles.stepsColumn, isWebWide && styles.stepsColumnWeb]} showsVerticalScrollIndicator={false}>
                   <Text style={styles.sectionLabel}>Steps</Text>
-                  {editableSteps.map((s, idx) => {
-                    const key = `step-${idx}`;
-                    const isLoading = !!itemLoading[key];
-                    const diff = itemDiffs[key];
-                    return (
+                  {editableSteps.map((s, idx) => (
                     <View key={idx} style={styles.stepCard}>
                       <View style={styles.stepCardMain}>
-                        {isLoading
-                          ? <ActivityIndicator size="small" color={theme.accent} style={styles.stepNum} />
-                          : <View style={[styles.stepNum, diff && styles.stepNumDiff]}><Text style={styles.stepNumText}>{s.sort_order}</Text></View>
-                        }
-                        {diff ? (
-                          <View style={styles.diffBlock}>
-                            <Text style={styles.diffOldText}>{diff.originalText}</Text>
-                            <Text style={styles.diffArrow}>↓</Text>
-                            <Text style={styles.diffNewText}>{diff.updated}</Text>
-                          </View>
-                        ) : (
-                          <Text style={styles.stepText}>{s.step_text}</Text>
-                        )}
-                        {!isLoading && (
-                          diff ? (
-                            <TouchableOpacity onPress={() => undoItemDiff(key)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={styles.ingAction}>
-                              <Ionicons name="arrow-undo-outline" size={14} color={theme.muted} />
-                            </TouchableOpacity>
-                          ) : (
-                            <>
-                              <TouchableOpacity onPress={() => toggleNote('step', idx)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={[styles.ingAction, noteOpen?.type === 'step' && noteOpen.idx === idx && styles.ingActionActive]}>
-                                <Ionicons name="chatbubble-outline" size={14} color={noteOpen?.type === 'step' && noteOpen.idx === idx ? theme.accent : theme.muted} />
-                              </TouchableOpacity>
-                              <TouchableOpacity onPress={() => toggleQuestion('step', idx)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={[styles.ingAction, questionOpen?.type === 'step' && questionOpen.idx === idx && styles.ingActionActive]}>
-                                <Ionicons name="help-circle-outline" size={15} color={questionOpen?.type === 'step' && questionOpen.idx === idx ? '#f59e0b' : theme.muted} />
-                              </TouchableOpacity>
-                            </>
-                          )
-                        )}
+                        <View style={styles.stepNum}><Text style={styles.stepNumText}>{s.sort_order}</Text></View>
+                        <Text style={styles.stepText}>{s.step_text}</Text>
                       </View>
-                      {s.timer_seconds != null && !diff && (
+                      {s.timer_seconds != null && (
                         <Text style={styles.stepTimer}>⏱ {Math.round(s.timer_seconds / 60)} min</Text>
                       )}
-                      {noteOpen?.type === 'step' && noteOpen.idx === idx && (
-                        <TextInput
-                          style={[styles.noteInput, { outlineStyle: 'none' } as any]}
-                          placeholder='e.g. "use pre-chopped cabbage"'
-                          placeholderTextColor={theme.muted}
-                          value={stepNotes[idx] ?? ''}
-                          onChangeText={v => setStepNotes(prev => ({ ...prev, [idx]: v }))}
-                          selectionColor={theme.accent}
-                          returnKeyType="done"
-                          onSubmitEditing={() => setNoteOpen(null)}
-                          autoFocus
-                        />
-                      )}
-                      {stepNotes[idx]?.trim() && !(noteOpen?.type === 'step' && noteOpen.idx === idx) && (
-                        <Text style={styles.notePreview}>→ {stepNotes[idx]}</Text>
-                      )}
-                      {questionOpen?.type === 'step' && questionOpen.idx === idx && (
-                        <View style={styles.questionInputRow}>
-                          <TextInput
-                            style={[styles.questionInput, { outlineStyle: 'none' } as any]}
-                            placeholder="Ask a question about this step…"
-                            placeholderTextColor={theme.muted}
-                            value={stepQuestions[idx] ?? ''}
-                            onChangeText={v => setStepQuestions(prev => ({ ...prev, [idx]: v }))}
-                            selectionColor="#f59e0b"
-                            returnKeyType="send"
-                            onSubmitEditing={() => handleAskStepQuestion(idx)}
-                            autoFocus
-                          />
-                          <TouchableOpacity
-                            style={styles.questionSendBtn}
-                            onPress={() => handleAskStepQuestion(idx)}
-                            disabled={!(stepQuestions[idx]?.trim())}
-                          >
-                            <Ionicons name="send" size={14} color={stepQuestions[idx]?.trim() ? '#f59e0b' : theme.muted} />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                      {stepQuestionLoading[idx] && (
-                        <View style={styles.questionAnswerRow}>
-                          <ActivityIndicator size="small" color="#f59e0b" />
-                          <Text style={styles.questionAnswerLoadingText}>Thinking…</Text>
-                        </View>
-                      )}
-                      {stepAnswers[idx] && !stepQuestionLoading[idx] && (
-                        <View style={styles.questionAnswerRow}>
-                          <Ionicons name="help-circle" size={14} color="#f59e0b" style={{ marginTop: 1 }} />
-                          <Text style={styles.questionAnswerText}>{stepAnswers[idx]}</Text>
-                          <TouchableOpacity onPress={() => setStepAnswers(prev => { const n = { ...prev }; delete n[idx]; return n; })} hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}>
-                            <Ionicons name="close-circle" size={13} color={theme.muted} />
-                          </TouchableOpacity>
-                        </View>
-                      )}
                     </View>
-                    );
-                  })}
+                  ))}
                 </ScrollView>
               </View>
             ) : (
@@ -1131,30 +927,69 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
               </ScrollView>
             )}
 
-            {/* ── Refine + save bar ── */}
-            <View style={styles.actionBar}>
-              <TextInput
-                style={[styles.refineInput, { outlineStyle: 'none' } as any]}
-                placeholder={'What would you like to change?\ne.g. "I don\'t have lemongrass" · "make it vegan" · "simpler steps"'}
-                placeholderTextColor={theme.muted}
-                value={refineText}
-                onChangeText={setRefineText}
-                multiline
-                selectionColor={theme.accent}
-              />
+            {/* ── Apply changes: mark ingredients above, add context, apply once ── */}
+            <View style={styles.chatBar}>
+              {markedForRemoval.size > 0 && (
+                <Text style={styles.markedCountText}>
+                  {markedForRemoval.size} ingredient{markedForRemoval.size > 1 ? 's' : ''} marked for removal
+                </Text>
+              )}
+
+              {applyResult && (
+                <View style={styles.applyResultBanner}>
+                  <Text style={styles.applyResultText}>{applyResult.message}</Text>
+                  {applyResult.options.length > 0 && (
+                    <View style={styles.applyOptionsRow}>
+                      {applyResult.options.map(opt => (
+                        <TouchableOpacity
+                          key={opt}
+                          style={styles.applyOptionChip}
+                          onPress={() => applyChanges(opt)}
+                          disabled={applyPending}
+                        >
+                          <Text style={styles.applyOptionChipText}>{opt}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={styles.chatInputRow}>
+                <TextInput
+                  style={[styles.chatInput, { outlineStyle: 'none' } as any]}
+                  placeholder="Anything else to mention? (optional)"
+                  placeholderTextColor={theme.muted}
+                  value={extraContext}
+                  onChangeText={setExtraContext}
+                  selectionColor={theme.accent}
+                  editable={!applyPending}
+                />
+              </View>
               <View style={styles.actionButtons}>
                 <TouchableOpacity
-                  style={[styles.applyButton, !hasChanges && styles.applyButtonDisabled]}
-                  onPress={handleRefine}
-                  disabled={!hasChanges}
+                  style={[styles.undoButton, docHistory.length === 0 && styles.undoButtonDisabled]}
+                  onPress={handleUndoChat}
+                  disabled={docHistory.length === 0}
                 >
-                  <Ionicons name="refresh-outline" size={16} color={hasChanges ? '#fff' : theme.muted} style={{ marginRight: 6 }} />
-                  <Text style={[styles.applyButtonText, !hasChanges && styles.applyButtonTextDisabled]}>Apply changes</Text>
+                  <Ionicons name="arrow-undo-outline" size={15} color={docHistory.length > 0 ? theme.subtext : theme.muted} style={{ marginRight: 6 }} />
+                  <Text style={[styles.undoButtonText, docHistory.length === 0 && styles.undoButtonTextDisabled]}>Undo last change</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.saveButton} onPress={handleSaveRecipe}>
-                  <Text style={styles.saveButtonText}>Save to collection</Text>
+                <TouchableOpacity
+                  style={[styles.saveButton, (applyPending || (markedForRemoval.size === 0 && !extraContext.trim())) && styles.btnDisabled]}
+                  onPress={() => applyChanges()}
+                  disabled={applyPending || (markedForRemoval.size === 0 && !extraContext.trim())}
+                >
+                  {applyPending ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Apply changes</Text>
+                  )}
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity style={styles.saveButtonFull} onPress={handleSaveRecipe}>
+                <Text style={styles.saveButtonText}>Save to collection</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.startOverLink} onPress={resetReview}>
                 <Text style={styles.startOverText}>Start over</Text>
               </TouchableOpacity>
@@ -1194,53 +1029,6 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
           </TouchableWithoutFeedback>
         </Modal>
       )}
-
-      {/* ── Validation warning modal ── */}
-      <Modal visible={showValidationModal} transparent animationType="fade" onRequestClose={() => setShowValidationModal(false)}>
-        <TouchableWithoutFeedback onPress={() => setShowValidationModal(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={[styles.modalCard, styles.validationCard]}>
-                <View style={styles.validationHeader}>
-                  <Ionicons name="warning-outline" size={22} color="#f59e0b" />
-                  <Text style={styles.validationTitle}>Heads up</Text>
-                </View>
-                <Text style={styles.validationSubtitle}>The AI flagged some potential issues with your changes.</Text>
-                <ScrollView style={styles.validationFlags} showsVerticalScrollIndicator={false}>
-                  {validationFlags.map((flag, i) => (
-                    <View key={i} style={styles.validationFlagCard}>
-                      <View style={styles.validationFlagHeader}>
-                        <Ionicons name="alert-circle-outline" size={14} color="#f59e0b" />
-                        <Text style={styles.validationFlagItem}>
-                          {flag.type === 'ingredient' ? `Ingredient ${flag.idx + 1}` : `Step ${flag.idx + 1}`}{flag.item ? `: ${flag.item}` : ''}
-                        </Text>
-                      </View>
-                      <Text style={styles.validationFlagMsg}>{flag.message}</Text>
-                      <Text style={styles.validationFlagSuggest}>💡 {flag.suggestion}</Text>
-                    </View>
-                  ))}
-                </ScrollView>
-                <View style={styles.validationActions}>
-                  <TouchableOpacity style={styles.validationReviewBtn} onPress={() => { setShowValidationModal(false); setPendingApplyCtx(null); }}>
-                    <Text style={styles.validationReviewText}>Review changes</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.validationProceedBtn} onPress={async () => {
-                    setShowValidationModal(false);
-                    if (pendingApplyCtx) {
-                      const ctx = { ...pendingApplyCtx };
-                      setPendingApplyCtx(null);
-                      setValidationFlags([]);
-                      await _executeApplyChanges(ctx.removals, ctx.ingComments, ctx.stepComments);
-                    }
-                  }}>
-                    <Text style={styles.validationProceedText}>Apply anyway</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
 
       {/* ── Sign-in modal ── */}
       <Modal visible={showSignIn} transparent animationType="fade" onRequestClose={() => setShowSignIn(false)}>
@@ -1361,36 +1149,13 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   // Ingredients column
   ingColumn: { padding: 16 },
   ingColumnWeb: { width: 300, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: t.hairline },
-  ingRow: { marginBottom: 4 },
-  ingRowMain: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7 },
+  ingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7 },
   ingBullet: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.accent, flexShrink: 0, marginTop: 1 },
   ingText: { flex: 1, fontSize: 15, color: t.text, lineHeight: 21 },
-  ingTextDeleted: { textDecorationLine: 'line-through', opacity: 0.4, color: t.muted },
+  ingTextMarked: { color: t.muted, textDecorationLine: 'line-through' },
   optLabel: { fontSize: 12, color: t.muted },
   ingAction: { padding: 4, borderRadius: 6 },
-  ingActionActive: { backgroundColor: t.accentFaded },
-
-  // Note input
-  noteInput: { marginLeft: 14, marginBottom: 4, fontSize: 13, color: t.text, borderWidth: 1, borderColor: t.accent, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: t.surface },
-  notePreview: { marginLeft: 14, fontSize: 12, color: t.accent, fontStyle: 'italic', marginBottom: 4, opacity: 0.85 },
-
-  // Step question Q&A
-  questionInputRow: { flexDirection: 'row', alignItems: 'center', marginLeft: 14, marginTop: 6, borderWidth: 1.5, borderColor: '#f59e0b', borderRadius: 8, backgroundColor: t.surface, overflow: 'hidden' },
-  questionInput: { flex: 1, fontSize: 13, color: t.text, paddingHorizontal: 10, paddingVertical: 7 },
-  questionSendBtn: { paddingHorizontal: 10, paddingVertical: 8 },
-  questionAnswerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginLeft: 14, marginTop: 6, padding: 10, backgroundColor: t.card, borderRadius: 8, borderLeftWidth: 2.5, borderLeftColor: '#f59e0b' },
-  questionAnswerText: { flex: 1, fontSize: 13, color: t.text, lineHeight: 19 },
-  questionAnswerLoadingText: { fontSize: 13, color: t.muted, fontStyle: 'italic' },
-
-  // Inline diff display
-  ingBulletSlot: { width: 6, flexShrink: 0 },
-  ingBulletDiff: { backgroundColor: '#4caf50' },
-  stepNumDiff: { backgroundColor: '#4caf50' },
-  diffInline: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
-  diffBlock: { flex: 1, gap: 4 },
-  diffOldText: { fontSize: 13, color: t.muted, textDecorationLine: 'line-through', lineHeight: 19 },
-  diffArrow: { fontSize: 12, color: t.muted },
-  diffNewText: { fontSize: 14, color: '#4caf50', fontWeight: '600', lineHeight: 20 },
+  ingActionMarked: { backgroundColor: '#cc4444' },
 
   // Steps column
   stepsColumn: { flex: 1, padding: 16 },
@@ -1406,35 +1171,27 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   fallbackScroll: { flex: 1, padding: 16 },
   recipeText: { fontSize: 15, lineHeight: 26, color: t.subtext },
 
-  // Action bar (refine + save)
-  actionBar: { padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.hairline, gap: 10 },
-  refineInput: { fontSize: 14, color: t.text, borderWidth: 1, borderColor: t.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: t.surface, lineHeight: 20, minHeight: 56, textAlignVertical: 'top' },
+  // ── Apply-changes pane (mark ingredients above, optional context, one apply) ──
+  chatBar: { padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.hairline, gap: 10 },
+  markedCountText: { fontSize: 12, color: t.muted },
+  applyResultBanner: { backgroundColor: t.card, borderWidth: 1, borderColor: t.border, borderRadius: 10, padding: 12, gap: 8 },
+  applyResultText: { fontSize: 14, color: t.text, lineHeight: 20 },
+  applyOptionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  applyOptionChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, backgroundColor: t.accentFaded },
+  applyOptionChipText: { fontSize: 13, color: t.accent, fontWeight: '600' },
+  chatInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: t.border, borderRadius: 10, backgroundColor: t.surface, paddingLeft: 14, paddingRight: 6 },
+  chatInput: { flex: 1, fontSize: 14, color: t.text, paddingVertical: 10, lineHeight: 20 },
   actionButtons: { flexDirection: 'row', gap: 10 },
-  applyButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 10, borderWidth: 1.5, borderColor: t.accent, backgroundColor: t.accentFaded },
-  applyButtonDisabled: { borderColor: t.border, backgroundColor: 'transparent', opacity: 0.4 },
-  applyButtonText: { color: t.accent, fontSize: 14, fontWeight: '600' },
-  applyButtonTextDisabled: { color: t.muted },
+  undoButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 10, borderWidth: 1.5, borderColor: t.border },
+  undoButtonDisabled: { opacity: 0.4 },
+  undoButtonText: { color: t.subtext, fontSize: 14, fontWeight: '600' },
+  undoButtonTextDisabled: { color: t.muted },
   saveButton: { flex: 1.4, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: t.accent },
+  saveButtonFull: { paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: t.accent },
   saveButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  btnDisabled: { opacity: 0.4 },
   startOverLink: { alignSelf: 'center', paddingVertical: 4 },
   startOverText: { fontSize: 12, color: t.muted },
-
-  // ── Validation modal ──
-  validationCard: { maxHeight: '80%', paddingBottom: 0 },
-  validationHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-  validationTitle: { fontSize: 18, fontWeight: '700', color: t.text },
-  validationSubtitle: { fontSize: 13, color: t.muted, marginBottom: 16 },
-  validationFlags: { maxHeight: 260, marginBottom: 16 },
-  validationFlagCard: { marginBottom: 10, padding: 12, backgroundColor: t.surface, borderRadius: 10, borderLeftWidth: 3, borderLeftColor: '#f59e0b' },
-  validationFlagHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  validationFlagItem: { fontSize: 13, fontWeight: '600', color: t.text },
-  validationFlagMsg: { fontSize: 13, color: t.subtext, lineHeight: 19, marginBottom: 6 },
-  validationFlagSuggest: { fontSize: 12, color: t.muted, lineHeight: 18 },
-  validationActions: { flexDirection: 'row', gap: 10, paddingTop: 4, paddingBottom: 4 },
-  validationReviewBtn: { flex: 1, paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, borderColor: t.border, alignItems: 'center' },
-  validationReviewText: { fontSize: 14, fontWeight: '600', color: t.subtext },
-  validationProceedBtn: { flex: 1, paddingVertical: 11, borderRadius: 10, backgroundColor: '#f59e0b', alignItems: 'center' },
-  validationProceedText: { fontSize: 14, fontWeight: '700', color: '#000' },
 
   // ── Voice overlay ──
   voiceOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center', gap: 24 },

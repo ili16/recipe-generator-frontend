@@ -1,7 +1,8 @@
 import axios, { AxiosInstance } from 'axios';
+import * as Localization from 'expo-localization';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, ValidateChangesPayload, ValidateChangesResponse } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, RefineResult, PatchRecipePayload, GenerationOrigin, EditTurn } from '../types';
 import authService from './authService';
 
 class ApiService {
@@ -51,6 +52,8 @@ class ApiService {
   }
 
   private async generateRecipe(formData: FormData): Promise<RecipeResponse> {
+    const language = Localization.getLocales()[0]?.languageCode;
+    if (language) formData.append('language', language);
     const response = await this.client.post<RecipeResponse>(
       API_ENDPOINTS.GENERATE_RECIPE,
       formData,
@@ -64,17 +67,14 @@ class ApiService {
   }
 
   // Generate recipe by description (anonymous or authenticated)
-  async generateByDescription(
-    description: string,
-    isGerman: boolean = false
-  ): Promise<RecipeResponse> {
+  async generateByDescription(description: string): Promise<RecipeResponse> {
     const formData = new FormData();
     formData.append('description', description);
     return this.generateRecipe(formData);
   }
 
   // Generate recipe by link
-  async generateByLink(url: string, isGerman: boolean = false): Promise<RecipeResponse> {
+  async generateByLink(url: string): Promise<RecipeResponse> {
     const formData = new FormData();
     formData.append('url', url);
     return this.generateRecipe(formData);
@@ -134,15 +134,6 @@ class ApiService {
     return response.data.text ?? '';
   }
 
-  async updateItem(current: string, instruction: string, context: string): Promise<string> {
-    try {
-      const response = await this.client.post<{ updated: string }>(API_ENDPOINTS.UPDATE_ITEM, { current, instruction, context });
-      return response.data.updated ?? current;
-    } catch {
-      return current;
-    }
-  }
-
   async suggestInput(input: string): Promise<string> {
     try {
       const response = await this.client.post<{ suggestion: string }>(API_ENDPOINTS.SUGGEST, { input });
@@ -180,22 +171,19 @@ class ApiService {
     await this.client.delete(`${API_ENDPOINTS.DELETE_RECIPE}/${recipeId}`);
   }
 
-  async refineRecipe(recipe: string, structured: RecipeDocument | null, changePrompt: string): Promise<RecipeResponse> {
-    const response = await this.client.post<RecipeResponse>(API_ENDPOINTS.REFINE_RECIPE, {
-      recipe,
-      structured,
+  async refineRecipe(
+    origin: GenerationOrigin,
+    initial: RecipeDocument,
+    history: EditTurn[],
+    changePrompt: string
+  ): Promise<RefineResult> {
+    const response = await this.client.post<RefineResult>(API_ENDPOINTS.REFINE_RECIPE, {
+      origin,
+      initial,
+      history,
       change_prompt: changePrompt,
     });
     return response.data;
-  }
-
-  async validateChanges(payload: ValidateChangesPayload): Promise<ValidateChangesResponse> {
-    try {
-      const response = await this.client.post<ValidateChangesResponse>(API_ENDPOINTS.VALIDATE_CHANGES, payload);
-      return response.data;
-    } catch {
-      return { flags: [], can_proceed: true };
-    }
   }
 
   async getRecipeById(recipeId: number): Promise<Recipe> {
@@ -222,31 +210,22 @@ class ApiService {
     }
   }
 
-  async askStep(recipeName: string, stepText: string, question: string): Promise<string> {
-    try {
-      const response = await this.client.post<{ answer: string }>(API_ENDPOINTS.ASK_STEP, {
-        recipe_name: recipeName,
-        step_text: stepText,
-        question,
-      });
-      return response.data.answer ?? '';
-    } catch {
-      return '';
-    }
-  }
-
   // Save recipe (requires authentication)
   async saveRecipe(
     recipeName: string,
     recipeContent: string,
-    category?: string,
-    structured?: RecipeDocument
+    tags?: string[],
+    structured?: RecipeDocument,
+    origin?: GenerationOrigin,
+    history?: EditTurn[]
   ): Promise<Recipe> {
     const response = await this.client.post<Recipe>(API_ENDPOINTS.SAVE_RECIPE, {
       recipename: recipeName,
       recipe: recipeContent,
-      ...(category ? { category } : {}),
+      ...(tags && tags.length > 0 ? { tags } : {}),
       ...(structured ? { structured } : {}),
+      ...(origin ? { origin } : {}),
+      ...(history ? { history } : {}),
     });
     return response.data;
   }

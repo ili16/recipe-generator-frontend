@@ -14,6 +14,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Recipe, RecipeDocument, RecipeResponse } from '../types';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useAlert } from '../context/AlertContext';
 import apiService from '../services/apiService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CookingMode'>;
@@ -78,6 +79,7 @@ function getStepIngredients(step: Step, allIngredients: Ingredient[]): Ingredien
 const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
   const { recipe: initialRecipe } = route.params;
   const { theme } = useTheme();
+  const { showAlert, confirmAction } = useAlert();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const [recipe, setRecipe] = useState<Recipe>(initialRecipe);
@@ -171,7 +173,7 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const handleRefine = async () => {
     const noteEntries = Object.entries(notes).filter(([, n]) => n.trim());
-    if (noteEntries.length === 0) return;
+    if (noteEntries.length === 0 || !recipe.structured) return;
 
     const changePrompt = noteEntries
       .map(([idx, note]) => {
@@ -185,12 +187,22 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
 
     setPhase('refining');
     try {
-      const refined = await apiService.refineRecipe(
-        recipe.recipe,
-        recipe.structured ?? null,
+      // This is a one-off refine of an already-saved recipe (no original generation
+      // prompt or edit history is retained for it), so it's seeded as a single-turn
+      // conversation using the current recipe as the "initial" document.
+      const result = await apiService.refineRecipe(
+        { prompt: recipe.recipename, source_type: 'text' },
+        recipe.structured,
+        [],
         `Apply my cooking notes to improve this recipe:\n${changePrompt}`,
       );
-      setRefinedRecipe(refined);
+      if (result.status !== 'applied' || !result.structured) {
+        const detail = result.options?.length ? `${result.message}\n\nOptions: ${result.options.join(', ')}` : result.message;
+        showAlert(result.status === 'rejected' ? "Can't apply that" : 'Needs a choice', detail || 'Could not refine the recipe.');
+        setPhase('done');
+        return;
+      }
+      setRefinedRecipe({ recipename: result.recipename!, recipe: result.recipe!, structured: result.structured });
       setPhase('refined');
     } catch {
       setPhase('done');
@@ -198,15 +210,23 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const handleSaveRefined = async () => {
-    if (!refinedRecipe) return;
+    if (!refinedRecipe?.structured) return;
+    if (recipe.manually_edited) {
+      const ok = await confirmAction(
+        'Overwrite manual edits?',
+        'Applying this AI suggestion will replace your manual changes to this recipe.',
+        { confirmLabel: 'Apply' },
+      );
+      if (!ok) return;
+    }
     setSaving(true);
     try {
-      await apiService.saveRecipe(
-        refinedRecipe.recipename,
-        refinedRecipe.recipe,
-        undefined,
-        refinedRecipe.structured ?? undefined,
-      );
+      const updated = await apiService.patchRecipe({
+        id: recipe.id,
+        structured: refinedRecipe.structured,
+        ai_sourced: true,
+      });
+      setRecipe(updated);
       navigation.navigate('Recipes');
     } catch {
       setSaving(false);

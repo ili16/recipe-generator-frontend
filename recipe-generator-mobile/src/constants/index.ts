@@ -1,8 +1,7 @@
 // API Configuration
-// TODO: Update with your actual backend URL
-export const API_BASE_URL = __DEV__ 
-  ? 'http://localhost:8080/api/v1' 
-  : 'https://your-production-api.com/api/v1';
+export const API_BASE_URL = __DEV__
+  ? 'http://localhost:8080/api/v1'
+  : 'https://recipe-generator-beta.ili16.de/api/v1';
 
 const KEYCLOAK_DEV_URL = 'https://sso.ili16.de';
 const KEYCLOAK_PROD_URL = 'https://sso.ili16.de';
@@ -29,9 +28,6 @@ export const API_ENDPOINTS = {
   USER_INFO: 'user-info',
   SUGGEST: 'suggest',
   SUGGEST_PREFS: 'suggest-prefs',
-  UPDATE_ITEM: 'update-item',
-  VALIDATE_CHANGES: 'validate-changes',
-  ASK_STEP: 'ask-step',
   COOKING_CHAT: 'cooking-chat',
   GET_RECIPE: 'recipes',
   REFINE_RECIPE: 'refine-recipe',

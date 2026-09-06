@@ -1,128 +1,73 @@
 # Deployment
 
-Expo web build served via nginx in Docker, exposed to the internet via Cloudflare Tunnel from a home VM.
+Expo web build served via nginx in Docker, exposed to the internet via Cloudflare
+Tunnel from a VM. Actual compose file, env template, and delivery script live in
+`../../deploy/` (outside this git repo, since it wires together both
+`recipe-generator` and `recipe-generator-frontend`). See `../../deploy/README.md`.
 
-## Prerequisites
+## URL layout
 
-- Docker + Docker Compose on the VM
-- Cloudflare Tunnel token (create at dash.cloudflare.com → Zero Trust → Tunnels)
-- Backend API reachable from the VM (see `recipe-generator/` for backend deployment)
+Single host, path-split: `recipe-generator-beta.ili16.de`
 
-## 1. Update production config
+- `/api/v1/*` → backend (`http://backend:8080` in-cluster, or
+  `http://host.docker.internal:8080` for the tunnel ingress rule)
+- everything else → this frontend's nginx (`http://frontend:80` / `:8081` on the host)
 
-In `src/constants/index.ts`, set the production API URL:
+Same-origin in the browser, so no cross-origin API calls in production — `CORS_ORIGIN`
+on the backend is defense in depth, not load-bearing for the web build.
+
+## Config that must match the deployed host
+
+`src/constants/index.ts`:
 
 ```ts
 export const API_BASE_URL = __DEV__
   ? 'http://localhost:8080/api/v1'
-  : 'https://api.yourdomain.com/api/v1';   // ← your backend tunnel URL
+  : 'https://recipe-generator-beta.ili16.de/api/v1';
 ```
 
-Also update `KEYCLOAK_CONFIG` if your Keycloak instance has a fixed URL already.
+## Keycloak: add the web redirect URI
 
-## 2. Add a web redirect URI in Keycloak
+The native scheme `com.recipegenerator://oauth/callback` only works in the native
+app. `authService.ts` already calls `AuthSession.makeRedirectUri({ scheme, path:
+'oauth/callback' })`, which on web resolves to the page's own origin — no code
+change needed — but Keycloak must be told to trust it:
 
-The native scheme `com.recipegenerator://oauth/callback` does not work in a browser.
-
-In Keycloak → `recipe-generator` realm → `frontend` client → Valid Redirect URIs, add:
+In Keycloak → `recipe-generator` realm → `frontend` client → **Valid Redirect URIs**, add:
 
 ```
-https://app.yourdomain.com/oauth/callback
+https://recipe-generator-beta.ili16.de/oauth/callback
 ```
 
-Then update `redirectUri` in `src/constants/index.ts` for the web platform (use `Platform.OS` guard if you need both native and web to coexist).
+## Build
 
-## 3. Build
+Handled by `deploy/docker-compose.yml` (`docker compose build frontend`), which runs:
 
 ```bash
-cd recipe-generator-mobile
 npm ci
-npx expo export --platform web   # outputs to dist/
+npx expo export --platform web   # -> dist/, a static SPA
 ```
+then serves `dist/` via the `Dockerfile`/`nginx.conf` in this directory.
 
-The `dist/` folder contains a fully static SPA.
+## Cloudflare Tunnel routing
 
-## 4. Docker files
+Public Hostname `recipe-generator-beta.ili16.de` on the tunnel, with two path rules
+(dashboard → Zero Trust → Networks → Tunnels → your tunnel → Public Hostname):
 
-`Dockerfile` (in this directory):
-
-```dockerfile
-FROM node:22-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npx expo export --platform web
-
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
-```
-
-`nginx.conf` (in this directory):
-
-```nginx
-server {
-    listen 80;
-    root /usr/share/nginx/html;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-}
-```
-
-## 5. docker-compose on the VM
-
-Place this at `~/recipe-generator/docker-compose.yml` on the VM alongside the synced `frontend/` folder:
-
-```yaml
-services:
-  frontend:
-    build: ./frontend/recipe-generator-mobile
-    restart: unless-stopped
-    ports:
-      - "3000:80"
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-```
-
-Create a `.env` file next to it:
-
-```
-CLOUDFLARE_TUNNEL_TOKEN=<your token here>
-```
-
-## 6. Cloudflare Tunnel routing
-
-In the Tunnel config (Cloudflare dashboard → Zero Trust → Tunnels → your tunnel → Public Hostnames):
-
-| Public hostname | Service |
+| Path | Service |
 |---|---|
-| `app.yourdomain.com` | `http://frontend:3000` |
-| `api.yourdomain.com` | `http://backend:8080` (if backend is in the same compose) |
+| `api/*` | `http://host.docker.internal:8080` |
+| `*` (catch-all) | `http://host.docker.internal:8081` |
 
-## 7. Deploy
+Routing to `host.docker.internal` (not the compose service names) is deliberate: it
+lets the same tunnel serve either the built containers or local dev processes
+(`go run ./cmd/`, `npm run web`) bound to the same host ports — see
+`../../deploy/README.md` for the fast-iteration workflow.
 
-```bash
-# On the VM
-cd ~/recipe-generator
-docker compose up -d --build
-```
-
-## Sync from dev machine
-
-The rsync command in the workspace already excludes `node_modules/`, `dist/`, and `build/` — the Docker build runs `npm ci` and `expo export` inside the container so nothing pre-built needs to be transferred.
+## Deploy
 
 ```bash
-rsync -az --info=progress2 \
-  --exclude='node_modules/' --exclude='.git/' --exclude='dist/' --exclude='build/' \
-  recipe-generator-frontend/ ilija@192.168.10.163:/home/ilija/recipe-generator/frontend/
+cd ../../deploy
+cp .env.example .env   # first time only, then fill in secrets
+./deploy.sh
 ```
