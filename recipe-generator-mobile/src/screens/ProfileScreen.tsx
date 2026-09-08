@@ -99,6 +99,10 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         ) : null}
 
+        <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Preferences')}>
+          <Text style={styles.ghostButtonText}>Preferences</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.primaryButton} onPress={handleLogout}>
           <Text style={styles.primaryButtonText}>Logout</Text>
         </TouchableOpacity>

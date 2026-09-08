@@ -21,16 +21,19 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import apiService from '../services/apiService';
-import authService, { AuthProvider } from '../services/authService';
+import authService, { AuthMode } from '../services/authService';
 import Loading from '../components/Loading';
+import RecipeSkeleton from '../components/RecipeSkeleton';
+import { parsePartialRecipeDoc } from '../utils/partialRecipeDoc';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, Theme } from '../context/ThemeContext';
-import { RecipeDocument, GenerationOrigin, EditTurn } from '../types';
+import { RecipeDocument, RecipeResponse, GenerationOrigin, EditTurn } from '../types';
 import { SUGGEST_DEBOUNCE_MS } from '../constants';
 import { useAlert } from '../context/AlertContext';
+import { addCachedRecipe } from '../utils/recipesCache';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Generate'>;
 type InputMode = 'text' | 'url' | 'image' | 'voice';
@@ -50,11 +53,13 @@ const fmtIngredient = (ing: RecipeDocument['ingredients'][number]): string => {
 const GenerateScreen: React.FC<Props> = ({ navigation }) => {
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false); // true only during the generate calls (vs. save/sign-in/transcribe, which reuse `loading` + the plain spinner)
   const [loadingMessage, setLoadingMessage] = useState('✨ Creating your recipe...');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [recipe, setRecipe] = useState<string | null>(null);
   const [recipeName, setRecipeName] = useState<string | null>(null);
   const [structuredDoc, setStructuredDoc] = useState<RecipeDocument | null>(null);
+  const [streamingDoc, setStreamingDoc] = useState<Partial<RecipeDocument> | null>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>('text');
   const [showSignIn, setShowSignIn] = useState(false);
@@ -91,6 +96,7 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
   const [showPrefs, setShowPrefs] = useState(false);
   const prefsAnim = useRef(new Animated.Value(0)).current;
   const prefsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { clarifyAnswersRef.current = clarifyAnswers; }, [clarifyAnswers]);
 
   // Recipe review
   const [editableIngredients, setEditableIngredients] = useState<RecipeDocument['ingredients']>([]);
@@ -106,6 +112,9 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
   // Full generation conversation, kept alive for the length of the review session so
   // refinements (and the eventual save) stay traceable to the original ask.
   const [origin, setOrigin] = useState<GenerationOrigin | null>(null);
+  // Identifies the /generate call that produced the current review, so a later save/
+  // refine/decline can report its outcome back for funnel analytics.
+  const [generationId, setGenerationId] = useState<string | undefined>(undefined);
   const [initialStructuredDoc, setInitialStructuredDoc] = useState<RecipeDocument | null>(null);
   const [editHistory, setEditHistory] = useState<EditTurn[]>([]);
 
@@ -114,9 +123,20 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
 
   // LLM-powered inline suggestion
   const [suggestion, setSuggestion] = useState('');
+  const [suggestionMode, setSuggestionMode] = useState<'append' | 'rewrite' | 'none'>('append');
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [topicRejected, setTopicRejected] = useState(false);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Inline chat mode: entered when the input reads as conversational rather than a dish description
+  const [chatActive, setChatActive] = useState(false);
+  const [chatLog, setChatLog] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([]);
+  const [chatSending, setChatSending] = useState(false);
+  // Offered after pressing Generate, when the nano classifier reads the input as conversational
+  const [chatSuggestion, setChatSuggestion] = useState<{ text: string; reply: string } | null>(null);
+  const [checkingIntent, setCheckingIntent] = useState(false);
+  const chatScrollRef = useRef<ScrollView>(null);
+  const clarifyAnswersRef = useRef<Record<string, string[]>>({});
 
   const inputRef = useRef<TextInput>(null);
 
@@ -187,22 +207,30 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
 
   const acceptSuggestion = useCallback(() => {
     if (!suggestion) return;
-    setInputText(prev => prev.trimEnd() + ' ' + suggestion);
+    if (suggestionMode === 'rewrite') {
+      setInputText(suggestion);
+    } else {
+      setInputText(prev => prev.trimEnd() + ' ' + suggestion);
+    }
     setSuggestion('');
-  }, [suggestion]);
+  }, [suggestion, suggestionMode]);
 
   // Debounced LLM suggestion fetch
   useEffect(() => {
     let cancelled = false;
     if (suggestTimer.current) clearTimeout(suggestTimer.current);
     const q = inputText.trim();
-    if (!q || q.length < 4 || inputMode !== 'text') { setSuggestion(''); setTopicRejected(false); return () => { cancelled = true; }; }
+    if (!q || q.length < 4 || inputMode !== 'text' || chatActive) { setSuggestion(''); setTopicRejected(false); return () => { cancelled = true; }; }
     suggestTimer.current = setTimeout(async () => {
       if (cancelled) return;
       setIsSuggesting(true);
       try {
-        const s = await apiService.suggestInput(q);
-        if (!cancelled) { setSuggestion(s.trim()); setTopicRejected(false); }
+        const { mode, text } = await apiService.suggestInput(q);
+        if (!cancelled) {
+          setSuggestionMode(mode);
+          setSuggestion(mode === 'none' ? '' : text.trim());
+          setTopicRejected(false);
+        }
       } catch (error: any) {
         if (!cancelled && error?.response?.status === 422) {
           setTopicRejected(true);
@@ -213,7 +241,7 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
       }
     }, SUGGEST_DEBOUNCE_MS);
     return () => { cancelled = true; if (suggestTimer.current) clearTimeout(suggestTimer.current); };
-  }, [inputText, inputMode]);
+  }, [inputText, inputMode, chatActive]);
 
   // Tab key accepts suggestion on web
   useEffect(() => {
@@ -225,27 +253,36 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [suggestion, acceptSuggestion]);
 
-  // Dynamic preference chips: LLM-generated, debounced, fade in/out smoothly
+  // Dynamic preference chips: LLM-generated, debounced, fade in/out smoothly.
+  // Conversational input classifies as mode:'chat' here too, but while the user
+  // is still typing we just show nothing for it (no chips) — the chat offer only
+  // happens once they press Generate, see handleGenerate/chatSuggestion below.
   useEffect(() => {
     let cancelled = false;
     if (prefsTimer.current) clearTimeout(prefsTimer.current);
     const q = inputText.trim();
-    if (q.length >= 4 && inputMode === 'text') {
+    if (q.length >= 4 && inputMode === 'text' && !chatActive) {
       prefsTimer.current = setTimeout(async () => {
         if (cancelled) return;
-        const prefs = await apiService.suggestPrefs(q);
-        if (!cancelled && prefs.length > 0) {
-          setDynamicPrefs(prefs as ClarifyQuestion[]);
+        const res = await apiService.suggestPrefs(q);
+        if (cancelled) return;
+        const prefs = res.questions ?? [];
+        if (prefs.length > 0) {
+          setDynamicPrefs(prev => {
+            const answered = prev.filter(p => (clarifyAnswersRef.current[p.id] ?? []).length > 0);
+            const answeredIds = new Set(answered.map(p => p.id));
+            return [...answered, ...(prefs as ClarifyQuestion[]).filter(p => !answeredIds.has(p.id))];
+          });
           setShowPrefs(true);
           Animated.timing(prefsAnim, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
         }
       }, 700);
-    } else {
+    } else if (!chatActive) {
       Animated.timing(prefsAnim, { toValue: 0, duration: 220, easing: Easing.in(Easing.quad), useNativeDriver: true })
         .start(({ finished }) => { if (finished) { setShowPrefs(false); setDynamicPrefs([]); } });
     }
     return () => { cancelled = true; if (prefsTimer.current) clearTimeout(prefsTimer.current); };
-  }, [inputText, inputMode]);
+  }, [inputText, inputMode, chatActive]);
 
   // ── Clipboard paste (web: global paste event; native: explicit button) ──
   const handleClipboardImage = useCallback(async (dataUrl: string, mime: string) => {
@@ -335,16 +372,14 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
 
   const buildDescription = useCallback((): string => {
     const parts: string[] = [inputText.trim()];
-    const activeIds  = new Set(dynamicPrefs.map(q => q.id));
-    const activeOpts = new Set(dynamicPrefs.flatMap(q => q.options));
-    const servings   = clarifyAnswers['servings']?.[0];
-    const diet       = (clarifyAnswers['diet'] ?? []).filter(o => activeOpts.has(o));
-    const difficulty = clarifyAnswers['difficulty']?.[0];
-    if (servings && activeIds.has('servings'))     parts.push(`for ${servings} servings`);
-    if (diet.length)                               parts.push(diet.join(' and '));
-    if (difficulty && activeIds.has('difficulty')) parts.push(difficulty);
+    for (const [qid, values] of Object.entries(clarifyAnswers)) {
+      if (values.length === 0) continue;
+      if (qid === 'servings') parts.push(`for ${values[0]} servings`);
+      else if (qid === 'difficulty') parts.push(values[0]);
+      else parts.push(values.join(' and ')); // diet, cut, doneness, etc. read fine as-is
+    }
     return parts.filter(Boolean).join(', ');
-  }, [inputText, clarifyAnswers, dynamicPrefs]);
+  }, [inputText, clarifyAnswers]);
 
   const toggleClarifyAnswer = (qid: string, option: string, type: QType) => {
     setClarifyAnswers(prev => {
@@ -354,13 +389,43 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
     });
   };
 
+  // Send the next turn of an in-progress inline chat conversation.
+  const sendChatTurn = async () => {
+    const text = inputText.trim();
+    if (!text || chatSending) return;
+    setChatSending(true);
+    setInputText('');
+    setChatLog(prev => [...prev, { role: 'user', text }]);
+    try {
+      const res = await apiService.suggestPrefs(text, chatLog);
+      if (res.mode === 'chat' && res.reply) {
+        setChatLog(prev => [...prev, { role: 'assistant', text: res.reply! }]);
+      }
+    } finally {
+      setChatSending(false);
+    }
+  };
+
   const resetReview = () => {
     setRecipe(null); setRecipeName(null); setStructuredDoc(null);
     setEditableIngredients([]); setEditableSteps([]);
     setMarkedForRemoval(new Set()); setExtraContext(''); setApplyPending(false); setApplyResult(null);
     setDocHistory([]);
     setOrigin(null); setInitialStructuredDoc(null); setEditHistory([]);
+    setChatActive(false); setChatLog([]);
+    setGenerationId(undefined);
   };
+
+  // Fires the decline-generation analytics beacon (if a generation is in progress) before
+  // resetting — must run first, since resetReview clears generationId.
+  const discardReview = () => {
+    if (generationId) apiService.declineGeneration(generationId);
+    resetReview();
+  };
+
+  useEffect(() => {
+    if (chatLog.length > 0) chatScrollRef.current?.scrollToEnd({ animated: true });
+  }, [chatLog]);
 
   const toggleMarkedForRemoval = (idx: number) => {
     setMarkedForRemoval(prev => {
@@ -389,7 +454,7 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
     setApplyPending(true);
     setApplyResult(null);
     try {
-      const result = await apiService.refineRecipe(origin, initialStructuredDoc, editHistory, instruction);
+      const result = await apiService.refineRecipe(origin, initialStructuredDoc, editHistory, instruction, generationId);
       if (result.status !== 'applied' || !result.structured) {
         setDocHistory(prev => prev.slice(0, -1));
         setApplyResult({ message: result.message ?? "Couldn't apply that change.", options: result.options ?? [] });
@@ -423,45 +488,111 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
     });
   };
 
+  // Runs a generate call over the streaming SSE endpoint on web (progressively updating
+  // streamingDoc so RecipeSkeleton can resolve fields live), falling back to the plain
+  // non-streaming call on native (RN fetch can't consume a streaming body) or if the
+  // stream itself fails — same fallback pattern WeekView uses for its own SSE call.
+  const generateWithStream = async (
+    streamFn: (onDelta: (raw: string) => void) => Promise<RecipeResponse>,
+    fallbackFn: () => Promise<RecipeResponse>
+  ): Promise<RecipeResponse> => {
+    if (Platform.OS !== 'web') return fallbackFn();
+    let acc = '';
+    try {
+      return await streamFn(delta => {
+        acc += delta;
+        setStreamingDoc(parsePartialRecipeDoc(acc));
+      });
+    } catch {
+      return fallbackFn();
+    }
+  };
+
   const handleGenerate = async () => {
     if (inputMode === 'url') {
       if (!isValidUrl) { showAlert('Invalid URL', 'Must start with http:// or https://'); return; }
-      setLoading(true); setLoadingMessage('🔗 Fetching recipe from URL...');
+      setLoading(true); setGenerating(true); setLoadingMessage('🔗 Fetching recipe from URL...'); setStreamingDoc(null);
       try {
-        const r = await apiService.generateByLink(urlInput.trim());
+        const trimmedUrl = urlInput.trim();
+        const r = await generateWithStream(
+          onDelta => apiService.generateByLinkStream(trimmedUrl, onDelta),
+          () => apiService.generateByLink(trimmedUrl)
+        );
         setRecipe(r.recipe); setRecipeName(r.recipename); setStructuredDoc(r.structured ?? null);
-        setOrigin({ prompt: urlInput.trim(), source_type: 'url', source_url: urlInput.trim() });
+        setGenerationId(r.generation_id);
+        setOrigin({ prompt: trimmedUrl, source_type: 'url', source_url: trimmedUrl });
         setInitialStructuredDoc(r.structured ?? null); setEditHistory([]);
         setUrlInput(''); setInputMode('text'); setIsFocused(false);
       } catch { showAlert('No recipe found', 'Could not extract a recipe from that URL. Make sure it links directly to a recipe page.'); }
-      finally { setLoading(false); }
+      finally { setLoading(false); setGenerating(false); setStreamingDoc(null); }
       return;
     }
     if (inputMode === 'image') {
       if (!selectedImage) { showAlert('No Image', 'Please select an image first'); return; }
-      setLoading(true); setLoadingMessage('📷 Analysing image...');
+      setLoading(true); setGenerating(true); setLoadingMessage('📷 Analysing image...'); setStreamingDoc(null);
       try {
-        const r = await apiService.generateByImage(selectedImage.uri);
+        const imageUri = selectedImage.uri;
+        const r = await generateWithStream(
+          onDelta => apiService.generateByImageStream(imageUri, onDelta),
+          () => apiService.generateByImage(imageUri)
+        );
         setRecipe(r.recipe); setRecipeName(r.recipename); setStructuredDoc(r.structured ?? null);
+        setGenerationId(r.generation_id);
         setOrigin({ prompt: '', source_type: 'image' });
         setInitialStructuredDoc(r.structured ?? null); setEditHistory([]);
         setSelectedImage(null); setInputMode('text'); setIsFocused(false);
       } catch { showAlert('Error', 'Failed to generate recipe from image'); }
-      finally { setLoading(false); }
+      finally { setLoading(false); setGenerating(false); setStreamingDoc(null); }
       return;
     }
     const description = buildDescription();
     if (!description) { showAlert('Input Required', "Please describe what you'd like to cook"); return; }
-    setLoading(true); setLoadingMessage('✨ Creating your recipe...');
+    setCheckingIntent(true);
     try {
-      const r = await apiService.generateByDescription(description);
+      const res = await apiService.suggestPrefs(description);
+      if (res.mode === 'chat' && res.reply) {
+        setChatSuggestion({ text: description, reply: res.reply });
+        return;
+      }
+    } finally {
+      setCheckingIntent(false);
+    }
+    await runGenerateText(description);
+  };
+
+  // The actual text-mode generation call, split out so both a direct Generate
+  // press and "Generate anyway" (after declining the chat suggestion) can call it
+  // without re-running the intent classifier.
+  const runGenerateText = async (description: string) => {
+    setLoading(true); setGenerating(true); setLoadingMessage('✨ Creating your recipe...'); setStreamingDoc(null);
+    try {
+      const r = await generateWithStream(
+        onDelta => apiService.generateByDescriptionStream(description, onDelta),
+        () => apiService.generateByDescription(description)
+      );
       setRecipe(r.recipe); setRecipeName(r.recipename); setStructuredDoc(r.structured ?? null);
+      setGenerationId(r.generation_id);
       setOrigin({ prompt: description, source_type: 'text' });
       setInitialStructuredDoc(r.structured ?? null); setEditHistory([]);
       setInputText(''); setIsFocused(false); setInputMode('text'); setClarifyAnswers({});
       prefsAnim.setValue(0); setShowPrefs(false); setDynamicPrefs([]);
     } catch { showAlert('Error', 'Failed to generate recipe. Please try again.'); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setGenerating(false); setStreamingDoc(null); }
+  };
+
+  const acceptChatSuggestion = () => {
+    if (!chatSuggestion) return;
+    setChatActive(true);
+    setChatLog([{ role: 'user', text: chatSuggestion.text }, { role: 'assistant', text: chatSuggestion.reply }]);
+    setInputText('');
+    setChatSuggestion(null);
+  };
+
+  const declineChatSuggestion = () => {
+    if (!chatSuggestion) return;
+    const { text } = chatSuggestion;
+    setChatSuggestion(null);
+    runGenerateText(text);
   };
 
   const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -643,8 +774,9 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
         ? [{ change_prompt: '', structured: initialStructuredDoc }, ...editHistory]
         : undefined;
       const saved = await apiService.saveRecipe(
-        recipeName, recipe, undefined, structuredDoc ?? undefined, origin ?? undefined, history
+        recipeName, recipe, undefined, structuredDoc ?? undefined, origin ?? undefined, history, generationId
       );
+      addCachedRecipe(saved);
       setRecentlySaved({ id: saved.id, name: saved.recipename });
       resetReview();
     } catch (error: any) {
@@ -660,10 +792,11 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
     finally { setLoading(false); }
   };
 
-  const handleSignIn = async (provider: AuthProvider) => {
+  const handleSignIn = async (mode: AuthMode) => {
     setShowSignIn(false); setLoading(true); setLoadingMessage('Signing in...');
     try {
-      const profile = await authService.login(provider);
+      const profile = await authService.login(mode);
+      if (Platform.OS === 'web') return; // web redirects the whole page to Keycloak
       if (profile) { setIsAuthenticated(true); showAlert('Welcome!', `Signed in as ${profile.name}`); }
       else showAlert('Sign In Failed', 'Please try again.');
     } catch { showAlert('Error', 'An error occurred during sign in.'); }
@@ -677,24 +810,16 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <Loading visible={loading} message={loadingMessage} />
+      <Loading visible={loading && !generating} message={loadingMessage} />
+      <RecipeSkeleton visible={generating} doc={streamingDoc} message={loadingMessage} />
 
       {/* ── Header ── */}
+      {/* Logo and profile/sign-in now live only in the sidebar/drawer nav — avoid duplicating them here. */}
       <View style={styles.header}>
-        <Text style={styles.logo}>RecipeGenerator</Text>
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.iconButton} onPress={toggle}>
             <Ionicons name={isDark ? 'sunny-outline' : 'moon-outline'} size={21} color={theme.subtext} />
           </TouchableOpacity>
-          {isAuthenticated ? (
-            <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('Profile')}>
-              <Ionicons name="person-circle-outline" size={23} color={theme.subtext} />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.signInChip} onPress={() => setShowSignIn(true)}>
-              <Text style={styles.signInChipText}>Sign in</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
 
@@ -710,7 +835,7 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
               {inputMode === 'url' && (
                 <View style={styles.urlChipWrapper}>
                   <Ionicons name="link" size={13} color={isValidUrl ? '#4caf50' : urlHasInput ? theme.accent : theme.muted} style={{ marginRight: 6 }} />
-                  <TextInput ref={urlRef} style={[styles.urlChipInput, { outlineStyle: 'none' } as any]} placeholder="Paste a recipe URL…" placeholderTextColor={theme.muted} selectionColor={theme.accent} value={urlInput} onChangeText={setUrlInput} autoCapitalize="none" autoCorrect={false} keyboardType="url" returnKeyType="next" onSubmitEditing={() => inputRef.current?.focus()} />
+                  <TextInput autoComplete="off" ref={urlRef} style={[styles.urlChipInput, { outlineStyle: 'none' } as any]} placeholder="Paste a recipe URL…" placeholderTextColor={theme.muted} selectionColor={theme.accent} value={urlInput} onChangeText={setUrlInput} autoCapitalize="none" autoCorrect={false} keyboardType="url" returnKeyType="next" onSubmitEditing={() => inputRef.current?.focus()} />
                   {urlHasInput ? (
                     <TouchableOpacity onPress={() => setUrlInput('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Ionicons name="close-circle" size={15} color={theme.muted} /></TouchableOpacity>
                   ) : (
@@ -736,16 +861,16 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
               )}
 
-              <TextInput
+              <TextInput autoComplete="off"
                 ref={inputRef}
                 style={[styles.input, isWebWide && styles.inputWebWide, { outlineStyle: 'none' } as any]}
                 placeholder={inputMode === 'url' ? 'Add context (optional)…' : (typedPlaceholder || 'What would you like to cook?')}
                 placeholderTextColor={theme.muted}
                 selectionColor={theme.accent}
                 value={inputText}
-                onChangeText={text => { setInputText(text); setSuggestion(''); setTopicRejected(false); }}
+                onChangeText={text => { setInputText(text); setSuggestion(''); setTopicRejected(false); setChatSuggestion(null); }}
                 onFocus={expand} onBlur={collapse}
-                multiline returnKeyType="done" blurOnSubmit onSubmitEditing={handleGenerate}
+                multiline returnKeyType="done" blurOnSubmit onSubmitEditing={chatActive ? sendChatTurn : handleGenerate}
               />
 
               {inputMode === 'text' && topicRejected && (
@@ -754,10 +879,30 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
                   <Text style={styles.topicErrorText}>We can only process food-related topics</Text>
                 </View>
               )}
-              {inputMode === 'text' && !topicRejected && (suggestion || isSuggesting) && (
+              {inputMode === 'text' && !chatActive && chatSuggestion && (
+                <View style={styles.chatSuggestRow}>
+                  <Text style={styles.chatSuggestText}>This reads like a question — chat about it instead?</Text>
+                  <View style={styles.chatSuggestActions}>
+                    <TouchableOpacity onPress={acceptChatSuggestion} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                      <Text style={styles.chatSuggestBtn}>Chat</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={declineChatSuggestion} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                      <Text style={styles.chatSuggestBtnMuted}>Generate anyway</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              {inputMode === 'text' && !chatActive && !topicRejected && !chatSuggestion && (suggestion || isSuggesting) && (
                 <TouchableOpacity style={styles.suggestionRow} onPress={acceptSuggestion} activeOpacity={0.7} disabled={isSuggesting}>
                   {isSuggesting ? (
                     <Text style={styles.suggestionLoadingText}>…</Text>
+                  ) : suggestionMode === 'rewrite' ? (
+                    <>
+                      <Text style={styles.suggestionGhostText} numberOfLines={2}>
+                        <Text style={styles.suggestionCompletion}>{suggestion}</Text>
+                      </Text>
+                      <Text style={styles.suggestionHint}>Rewrite {Platform.OS === 'web' ? 'Tab' : '↵'}</Text>
+                    </>
                   ) : (
                     <>
                       <Text style={styles.suggestionGhostText} numberOfLines={2}>
@@ -786,20 +931,28 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
                     </TouchableOpacity>
                   )}
                 </View>
-                {canGenerate && (
+                {chatActive ? (
                   <TouchableOpacity
-                    style={[styles.generateButton, topicRejected && styles.generateButtonDisabled]}
-                    onPress={handleGenerate}
-                    disabled={topicRejected}
+                    style={[styles.generateButton, (chatSending || !inputText.trim()) && styles.generateButtonDisabled]}
+                    onPress={sendChatTurn}
+                    disabled={chatSending || !inputText.trim()}
                   >
-                    <Text style={styles.generateButtonText}>Generate ↵</Text>
+                    <Text style={styles.generateButtonText}>Send ↵</Text>
+                  </TouchableOpacity>
+                ) : canGenerate && (
+                  <TouchableOpacity
+                    style={[styles.generateButton, (topicRejected || checkingIntent) && styles.generateButtonDisabled]}
+                    onPress={handleGenerate}
+                    disabled={topicRejected || checkingIntent}
+                  >
+                    <Text style={styles.generateButtonText}>{checkingIntent ? 'Checking…' : 'Generate ↵'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
             </Animated.View>
 
             {/* Context-aware preference chips — always in DOM on web to prevent layout shift */}
-            {(showPrefs || isWebWide) && (
+            {!chatActive && (showPrefs || isWebWide) && (
               <Animated.View
                 style={[styles.prefsWrap, isWebWide && styles.prefsWrapWeb, { opacity: prefsAnim }]}
                 pointerEvents={showPrefs ? 'auto' : 'none'}
@@ -829,6 +982,28 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
               </Animated.View>
             )}
 
+            {/* Inline chat — replaces the prefs block once input reads as conversational */}
+            {chatActive && (
+              <View style={styles.chatLogWrap}>
+                <ScrollView ref={chatScrollRef} showsVerticalScrollIndicator={false}>
+                  {chatLog.map((m, i) => (
+                    <View key={i} style={[styles.chatBubbleRow, m.role === 'user' ? styles.chatBubbleRowUser : styles.chatBubbleRowAssistant]}>
+                      <View style={[styles.chatBubble, m.role === 'user' ? styles.chatBubbleUser : styles.chatBubbleAssistant]}>
+                        <Text style={m.role === 'user' ? styles.chatBubbleTextUser : styles.chatBubbleTextAssistant}>{m.text}</Text>
+                      </View>
+                    </View>
+                  ))}
+                  {chatSending && (
+                    <View style={[styles.chatBubbleRow, styles.chatBubbleRowAssistant]}>
+                      <View style={[styles.chatBubble, styles.chatBubbleAssistant]}>
+                        <Text style={styles.chatBubbleTextAssistant}>…</Text>
+                      </View>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+
           </View>
 
             <Text style={styles.helperText}>describe a dish · paste a URL · upload an image · use voice</Text>
@@ -856,7 +1031,7 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
             {/* Header */}
             <View style={styles.reviewHeader}>
               <Text style={styles.reviewTitle} numberOfLines={2}>{recipeName}</Text>
-              <TouchableOpacity style={styles.closeButton} onPress={resetReview}>
+              <TouchableOpacity style={styles.closeButton} onPress={discardReview}>
                 <Ionicons name="close" size={18} color={theme.subtext} />
               </TouchableOpacity>
             </View>
@@ -956,7 +1131,7 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
               )}
 
               <View style={styles.chatInputRow}>
-                <TextInput
+                <TextInput autoComplete="off"
                   style={[styles.chatInput, { outlineStyle: 'none' } as any]}
                   placeholder="Anything else to mention? (optional)"
                   placeholderTextColor={theme.muted}
@@ -990,7 +1165,7 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
               <TouchableOpacity style={styles.saveButtonFull} onPress={handleSaveRecipe}>
                 <Text style={styles.saveButtonText}>Save to collection</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.startOverLink} onPress={resetReview}>
+              <TouchableOpacity style={styles.startOverLink} onPress={discardReview}>
                 <Text style={styles.startOverText}>Start over</Text>
               </TouchableOpacity>
             </View>
@@ -1037,10 +1212,12 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
             <TouchableWithoutFeedback>
               <View style={styles.modalCard}>
                 <Text style={styles.modalTitle}>Sign in</Text>
-                <Text style={styles.modalSubtitle}>Save recipes and create cookbooks. Google is currently supported.</Text>
-                <TouchableOpacity style={styles.providerButton} onPress={() => handleSignIn('google')}>
-                  <View style={styles.providerLogo}><Text style={styles.googleG}>G</Text></View>
-                  <Text style={styles.providerText}>Continue with Google (recommended)</Text>
+                <Text style={styles.modalSubtitle}>Save recipes and create cookbooks.</Text>
+                <TouchableOpacity style={styles.primaryButton} onPress={() => handleSignIn('login')}>
+                  <Text style={styles.primaryButtonText}>Log in</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryButton} onPress={() => handleSignIn('signup')}>
+                  <Text style={styles.secondaryButtonText}>Signup for free</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.dismissButton} onPress={() => setShowSignIn(false)}>
                   <Text style={styles.dismissText}>Maybe later</Text>
@@ -1057,12 +1234,9 @@ const GenerateScreen: React.FC<Props> = ({ navigation }) => {
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.bg },
 
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 54 : 22, paddingBottom: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.hairline },
-  logo: { fontSize: 20, fontWeight: '700', color: t.text, letterSpacing: -0.5 },
+  header: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 54 : 22, paddingBottom: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.hairline },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconButton: { padding: 6 },
-  signInChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: t.accent },
-  signInChipText: { color: t.accent, fontSize: 13, fontWeight: '600' },
 
   scrollView: { flex: 1 },
   scrollContent: { flexGrow: 1 },
@@ -1106,6 +1280,11 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   generateButtonText: { color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 0.2 },
   topicErrorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 2, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.hairline, marginTop: 4 },
   topicErrorText: { flex: 1, fontSize: 13, color: '#e53935' },
+  chatSuggestRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 2, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.hairline, marginTop: 4 },
+  chatSuggestText: { flex: 1, fontSize: 13, color: t.subtext },
+  chatSuggestActions: { flexDirection: 'row', gap: 12 },
+  chatSuggestBtn: { fontSize: 13, fontWeight: '700', color: t.accent },
+  chatSuggestBtnMuted: { fontSize: 13, color: t.muted },
 
   refineLink: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingVertical: 4 },
   refineLinkText: { fontSize: 12, color: t.muted },
@@ -1121,6 +1300,20 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   prefChipSel: { borderColor: t.accent, backgroundColor: t.accentFaded },
   prefChipText: { fontSize: 13, color: t.subtext },
   prefChipTextSel: { color: t.accent, fontWeight: '600' },
+
+  // Inline chat — replaces the prefs block, taller than the compact chip row so the
+  // window visibly grows as the conversation goes on, capped with internal scroll.
+  // Always stacked directly under the input box (same column, same width) — never
+  // floated to the side, so the chat stays where the user was just typing.
+  chatLogWrap: { width: '100%', maxWidth: 560, marginTop: 12, minHeight: 160, maxHeight: 380 },
+  chatBubbleRow: { flexDirection: 'row', marginBottom: 8 },
+  chatBubbleRowUser: { justifyContent: 'flex-end' },
+  chatBubbleRowAssistant: { justifyContent: 'flex-start' },
+  chatBubble: { maxWidth: '82%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14 },
+  chatBubbleUser: { backgroundColor: t.accent, borderBottomRightRadius: 4 },
+  chatBubbleAssistant: { backgroundColor: t.card, borderBottomLeftRadius: 4 },
+  chatBubbleTextUser: { fontSize: 13, color: '#fff', lineHeight: 18 },
+  chatBubbleTextAssistant: { fontSize: 13, color: t.text, lineHeight: 18 },
 
   recentlySavedPill: { flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: t.surface, borderRadius: 20, borderWidth: 1, borderColor: '#4caf50', alignSelf: 'center', maxWidth: 280 },
   recentlySavedText: { fontSize: 13, color: t.text, fontWeight: '500', flex: 1 },
@@ -1214,10 +1407,10 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   modalCard: { width: '100%', maxWidth: 340, backgroundColor: t.card, borderRadius: 20, borderWidth: 1, borderColor: t.border, padding: 28, alignItems: 'center' },
   modalTitle: { fontSize: 22, fontWeight: '700', color: t.text, marginBottom: 6 },
   modalSubtitle: { fontSize: 13, color: t.muted, marginBottom: 28, textAlign: 'center' },
-  providerButton: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingVertical: 13, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, marginBottom: 12, gap: 14 },
-  providerLogo: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
-  googleG: { fontSize: 14, fontWeight: '800', color: '#4285F4', lineHeight: 16 },
-  providerText: { color: t.subtext, fontSize: 14, fontWeight: '500', flex: 1 },
+  primaryButton: { width: '100%', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, backgroundColor: t.accent, marginBottom: 12 },
+  primaryButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  secondaryButton: { width: '100%', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, marginBottom: 12 },
+  secondaryButtonText: { color: t.text, fontSize: 15, fontWeight: '600' },
   dismissButton: { marginTop: 8, paddingVertical: 10 },
   dismissText: { color: t.muted, fontSize: 13 },
 });

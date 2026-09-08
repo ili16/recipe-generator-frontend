@@ -11,11 +11,13 @@ import {
   Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import Markdown from 'react-native-markdown-display';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Recipe, RecipeDocument, RecipeResponse } from '../types';
 import { useTheme, Theme } from '../context/ThemeContext';
 import { useAlert } from '../context/AlertContext';
 import apiService from '../services/apiService';
+import { recipeMarkdownStyles } from '../components/RecipeView';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CookingMode'>;
 type Phase = 'loading' | 'overview' | 'cooking' | 'done' | 'refining' | 'refined';
@@ -435,7 +437,7 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
               ))}
             </>
           ) : (
-            <Text style={styles.recipeText}>{recipe.recipe}</Text>
+            <Markdown style={recipeMarkdownStyles(theme)}>{recipe.recipe}</Markdown>
           )}
 
           {steps.length > 0 && (
@@ -544,14 +546,14 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
             })()}
           </>
         ) : (
-          <Text style={styles.stepText}>{recipe.recipe}</Text>
+          <Markdown style={recipeMarkdownStyles(theme)}>{recipe.recipe}</Markdown>
         )}
 
         {/* Note panel */}
         {showNoteInput ? (
           <View style={styles.noteInputContainer}>
             <Text style={styles.noteInputLabel}>📝 Add a note</Text>
-            <TextInput
+            <TextInput autoComplete="off"
               style={styles.noteInputField}
               value={noteInput}
               onChangeText={setNoteInput}
@@ -598,7 +600,7 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
           <View style={styles.aiContainer}>
             <Text style={styles.aiLabel}>✨ Ask AI</Text>
             <View style={styles.aiInputRow}>
-              <TextInput
+              <TextInput autoComplete="off"
                 style={styles.aiInputField}
                 value={aiInput}
                 onChangeText={setAiInput}
@@ -810,12 +812,6 @@ const makeStyles = (t: Theme) =>
       color: t.muted,
       textAlign: 'center',
     },
-    recipeText: {
-      fontSize: 15,
-      lineHeight: 22,
-      color: t.subtext,
-    },
-
     // Step
     stepLabel: {
       fontSize: 13,

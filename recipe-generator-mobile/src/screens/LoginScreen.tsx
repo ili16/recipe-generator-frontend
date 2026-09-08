@@ -5,10 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import authService, { AuthProvider } from '../services/authService';
+import authService, { AuthMode } from '../services/authService';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
 
@@ -19,10 +20,15 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
-  const handleLogin = async (provider: AuthProvider) => {
+  const handleLogin = async (mode: AuthMode) => {
     setLoading(true);
     try {
-      const profile = await authService.login(provider);
+      const profile = await authService.login(mode);
+      if (Platform.OS === 'web') {
+        // Web login redirects the whole page to Keycloak; the app reloads
+        // once the user comes back, so there's nothing left to do here.
+        return;
+      }
       if (profile) {
         Alert.alert('Welcome!', `Logged in as ${profile.name}`);
         navigation.goBack();
@@ -42,16 +48,23 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
       <View style={styles.content}>
         <Text style={styles.title}>Sign In</Text>
         <Text style={styles.subtitle}>
-          Sign in to save recipes and create cookbooks. Google is currently supported.
+          Sign in to save recipes and create cookbooks.
         </Text>
-        
-        {/* Google Sign In */}
+
         <TouchableOpacity
-          style={[styles.authButton, styles.googleButton]}
-          onPress={() => handleLogin('google')}
+          style={[styles.authButton, styles.primaryButton]}
+          onPress={() => handleLogin('login')}
           disabled={loading}
         >
-          <Text style={styles.authButtonText}>Continue with Google (recommended)</Text>
+          <Text style={styles.primaryButtonText}>Log in</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.authButton, styles.googleButton]}
+          onPress={() => handleLogin('signup')}
+          disabled={loading}
+        >
+          <Text style={styles.authButtonText}>Signup for free</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -109,6 +122,15 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     color: t.text,
     fontSize: 16,
     fontWeight: '600',
+  },
+  primaryButton: {
+    backgroundColor: t.accent,
+    borderColor: t.accent,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   skipButton: {
     marginTop: 20,

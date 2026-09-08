@@ -1,14 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import * as AuthSession from 'expo-auth-session';
+import { Platform } from 'react-native';
 import { KEYCLOAK_CONFIG, STORAGE_KEYS } from '../constants';
 import { UserProfile } from '../types';
 
-export type AuthProvider = 'google';
+// 'login' sends the user to Keycloak's login page; 'signup' sends them straight
+// to its registration page instead. Google shows up as an alternative on both
+// (configured as an IdP on the realm), so there's no separate Google button.
+export type AuthMode = 'login' | 'signup';
 
 const KEYCLOAK_ISSUER = `${KEYCLOAK_CONFIG.url}/realms/${KEYCLOAK_CONFIG.realm}`;
 const USERINFO_ENDPOINT = `${KEYCLOAK_ISSUER}/protocol/openid-connect/userinfo`;
 const AUTHORIZATION_ENDPOINT = `${KEYCLOAK_ISSUER}/protocol/openid-connect/auth`;
+const REGISTRATION_ENDPOINT = `${KEYCLOAK_ISSUER}/protocol/openid-connect/registrations`;
 const TOKEN_ENDPOINT = `${KEYCLOAK_ISSUER}/protocol/openid-connect/token`;
 const REVOCATION_ENDPOINT = `${KEYCLOAK_ISSUER}/protocol/openid-connect/revoke`;
 
@@ -16,6 +21,18 @@ const DISCOVERY: AuthSession.DiscoveryDocument = {
   authorizationEndpoint: AUTHORIZATION_ENDPOINT,
   tokenEndpoint: TOKEN_ENDPOINT,
   revocationEndpoint: REVOCATION_ENDPOINT,
+};
+
+// Web only: mobile Safari blocks the popup expo-auth-session opens for
+// promptAsync() because it's opened after an `await`, not synchronously from
+// the click. A full-page redirect never gets blocked, so on web we drive the
+// OAuth code flow manually and stash the PKCE verifier across the reload.
+const WEB_AUTH_STATE_KEY = 'recipe_generator_web_auth_state';
+
+type WebAuthState = {
+  state: string;
+  codeVerifier?: string;
+  redirectUri: string;
 };
 
 class AuthService {
@@ -33,25 +50,35 @@ class AuthService {
     });
   }
 
-  async login(provider: AuthProvider): Promise<UserProfile | null> {
-    if (provider !== 'google') {
-      throw new Error('Only Google login is supported.');
-    }
-
+  async login(mode: AuthMode = 'login'): Promise<UserProfile | null> {
     try {
       const redirectUri = this.buildRedirectUri();
+      const discovery: AuthSession.DiscoveryDocument = {
+        ...DISCOVERY,
+        authorizationEndpoint: mode === 'signup' ? REGISTRATION_ENDPOINT : AUTHORIZATION_ENDPOINT,
+      };
       const request = new AuthSession.AuthRequest({
         clientId: KEYCLOAK_CONFIG.clientId,
         responseType: AuthSession.ResponseType.Code,
         redirectUri,
         scopes: ['openid', 'profile', 'email', 'offline_access'],
         usePKCE: true,
-        extraParams: {
-          kc_idp_hint: KEYCLOAK_CONFIG.googleIdpHint,
-        },
       });
 
-      const result = await request.promptAsync(DISCOVERY);
+      if (Platform.OS === 'web') {
+        const authUrl = await request.makeAuthUrlAsync(discovery);
+        const state: WebAuthState = {
+          state: request.state,
+          codeVerifier: request.codeVerifier,
+          redirectUri,
+        };
+        window.sessionStorage.setItem(WEB_AUTH_STATE_KEY, JSON.stringify(state));
+        window.location.assign(authUrl);
+        // Navigation away from the page happens above; nothing left to return.
+        return null;
+      }
+
+      const result = await request.promptAsync(discovery);
       if (result.type !== 'success' || !result.params.code) {
         return null;
       }
@@ -68,36 +95,98 @@ class AuthService {
         DISCOVERY
       );
 
-      const accessToken = tokenResponse.accessToken;
-      if (!accessToken) {
-        throw new Error('Missing access token in authorization response.');
-      }
-
-      const profile = await this.fetchUserProfile(accessToken);
-
-      this.accessToken = accessToken;
-      this.refreshToken = tokenResponse.refreshToken ?? null;
-      this.tokenExpiresAt = this.resolveTokenExpiry(tokenResponse, accessToken);
-      this.userProfile = profile;
-
-      await AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN, accessToken);
-      if (tokenResponse.refreshToken) {
-        await AsyncStorage.setItem(STORAGE_KEYS.USER_REFRESH_TOKEN, tokenResponse.refreshToken);
-      } else {
-        await AsyncStorage.removeItem(STORAGE_KEYS.USER_REFRESH_TOKEN);
-      }
-      if (this.tokenExpiresAt) {
-        await AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN_EXPIRES_AT, String(this.tokenExpiresAt));
-      } else {
-        await AsyncStorage.removeItem(STORAGE_KEYS.USER_TOKEN_EXPIRES_AT);
-      }
-      await AsyncStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(profile));
-
-      return profile;
+      return await this.finalizeLogin(tokenResponse);
     } catch (error) {
       console.error('Login error:', error);
       return null;
     }
+  }
+
+  /**
+   * Web only: call once on app start. Finishes the redirect-based login started
+   * by `login()` if the page just came back from Keycloak with `?code=&state=`.
+   */
+  async completeWebLoginIfNeeded(): Promise<UserProfile | null> {
+    if (Platform.OS !== 'web') {
+      return null;
+    }
+
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('code');
+    const returnedState = url.searchParams.get('state');
+    if (!code || !returnedState) {
+      return null;
+    }
+
+    // Strip the OAuth params and go back to the app's root regardless of
+    // outcome, so a refresh doesn't try to replay the same code and the user
+    // isn't left sitting on the bare /oauth/callback URL.
+    url.searchParams.delete('code');
+    url.searchParams.delete('state');
+    url.searchParams.delete('session_state');
+    url.searchParams.delete('iss');
+    url.pathname = '/';
+    window.history.replaceState({}, '', url.toString());
+
+    const rawState = window.sessionStorage.getItem(WEB_AUTH_STATE_KEY);
+    window.sessionStorage.removeItem(WEB_AUTH_STATE_KEY);
+    if (!rawState) {
+      return null;
+    }
+
+    try {
+      const savedState: WebAuthState = JSON.parse(rawState);
+      if (savedState.state !== returnedState) {
+        console.error('Login error: OAuth state mismatch.');
+        return null;
+      }
+
+      const tokenResponse = await AuthSession.exchangeCodeAsync(
+        {
+          clientId: KEYCLOAK_CONFIG.clientId,
+          code,
+          redirectUri: savedState.redirectUri,
+          extraParams: {
+            code_verifier: savedState.codeVerifier ?? '',
+          },
+        },
+        DISCOVERY
+      );
+
+      return await this.finalizeLogin(tokenResponse);
+    } catch (error) {
+      console.error('Login error:', error);
+      return null;
+    }
+  }
+
+  private async finalizeLogin(tokenResponse: AuthSession.TokenResponse): Promise<UserProfile> {
+    const accessToken = tokenResponse.accessToken;
+    if (!accessToken) {
+      throw new Error('Missing access token in authorization response.');
+    }
+
+    const profile = await this.fetchUserProfile(accessToken);
+
+    this.accessToken = accessToken;
+    this.refreshToken = tokenResponse.refreshToken ?? null;
+    this.tokenExpiresAt = this.resolveTokenExpiry(tokenResponse, accessToken);
+    this.userProfile = profile;
+
+    await AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN, accessToken);
+    if (tokenResponse.refreshToken) {
+      await AsyncStorage.setItem(STORAGE_KEYS.USER_REFRESH_TOKEN, tokenResponse.refreshToken);
+    } else {
+      await AsyncStorage.removeItem(STORAGE_KEYS.USER_REFRESH_TOKEN);
+    }
+    if (this.tokenExpiresAt) {
+      await AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN_EXPIRES_AT, String(this.tokenExpiresAt));
+    } else {
+      await AsyncStorage.removeItem(STORAGE_KEYS.USER_TOKEN_EXPIRES_AT);
+    }
+    await AsyncStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(profile));
+
+    return profile;
   }
 
   private async fetchUserProfile(accessToken: string): Promise<UserProfile> {
@@ -324,6 +413,7 @@ class AuthService {
       STORAGE_KEYS.USER_REFRESH_TOKEN,
       STORAGE_KEYS.USER_TOKEN_EXPIRES_AT,
       STORAGE_KEYS.USER_PROFILE,
+      STORAGE_KEYS.RECIPES,
     ]);
   }
 

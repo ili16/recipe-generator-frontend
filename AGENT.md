@@ -18,6 +18,7 @@ Technical reference for the recipe-generator-frontend. Primary workspace for cha
 | Audio | `expo-av` (`Audio.Recording`) |
 | Icons | `@expo/vector-icons` (Ionicons) |
 | Markdown | `react-native-markdown-display` |
+| Gestures | `react-native-gesture-handler` (~2.28.0, Day view drag only — no Reanimated) |
 
 ## Local Runbook
 
@@ -49,21 +50,40 @@ Backend must be running at `http://localhost:8080/api/v1`. See `recipe-generator
 
 ```
 src/
-├── constants/index.ts          — config, endpoint strings, constants
-├── context/ThemeContext.tsx    — dark/light theme provider and useTheme hook
+├── constants/
+│   ├── index.ts                — config, endpoint strings, constants
+│   └── mealPlanPrefs.ts        — WEEKDAYS / BATCH_DAYS_OPTIONS, shared by PreferencesScreen + WeekView's ad-hoc panel
+├── context/
+│   ├── ThemeContext.tsx        — dark/light theme provider and useTheme hook
+│   └── MealPlanContext.tsx     — AsyncStorage-persisted itemsByDate/recipes cache shared by Day/Week/Month (see below)
 ├── hooks/useEscapeBack.ts      — web: Escape key → goBack
-├── navigation/AppNavigator.tsx — Stack: Generate | Login | Recipes | Profile
+├── navigation/AppNavigator.tsx — Stack: Generate | Login | Recipes | Profile | MealPlan
 ├── screens/
 │   ├── GenerateScreen.tsx      — main generation + recipe review UI
 │   ├── RecipesScreen.tsx       — list, expand, delete saved recipes
 │   ├── ProfileScreen.tsx       — user info + logout
-│   └── LoginScreen.tsx         — Keycloak login trigger
+│   ├── LoginScreen.tsx         — Keycloak login trigger
+│   ├── MealPlanScreen.tsx      — thin shell: auth gate, Day/Week/Month switcher, shared selectedDate, wraps MealPlanProvider
+│   └── mealplan/
+│       ├── WeekView.tsx        — default view: hand-assign a day, AI "Suggest a plan" + streaming chat + accept, ad-hoc scheduling-preferences panel
+│       ├── DayView.tsx         — 08:00–20:00 timeline, drag the day's recipe block to a new time (react-native-gesture-handler)
+│       ├── MonthView.tsx       — read-only calendar grid, tap a day → opens Day view
+│       └── RecipePickerModal.tsx — shared "choose a saved recipe" modal (Week + Day)
 ├── services/
-│   ├── apiService.ts           — Axios client, all API methods
+│   ├── apiService.ts           — Axios client, all API methods (+ one raw-fetch SSE reader for chat streaming)
 │   └── authService.ts          — OIDC PKCE, token storage, refresh
 ├── types/index.ts              — all shared TypeScript interfaces
-└── utils/alert.ts              — cross-platform alert/confirm helpers
+└── utils/
+    ├── alert.ts                — cross-platform alert/confirm helpers
+    └── mealPlanDates.ts        — plain-Date helpers (toISODate, parseISODate, mondayOf, addDays, monthGridRange)
 ```
+
+**`MealPlanContext`**: `itemsByDate: Record<YYYY-MM-DD, MealPlanItem>` + `recipes: Recipe[]`,
+hydrated from AsyncStorage on mount then background-refreshed via `ensureRange(startISO,
+endISO)`; `upsertItem`/`removeItem` update it immediately after a successful add/patch/
+delete so every mounted view reflects the change without waiting for a refetch. This is
+what makes switching Day/Week/Month instant (no loading spinner on switch) — each view
+reads synchronously from context instead of fetching on its own mount.
 
 ## Authentication Flow
 
@@ -93,6 +113,18 @@ Do not bypass this pattern when adding new authenticated calls.
 | POST | `suggest-prefs` | `{input}` | none | `{questions[]}` |
 | POST | `refine-recipe` | `{recipe, structured, change_prompt}` | optional | `RecipeResponse` |
 | GET | `recipes/:id/history` | — | required | `RecipeVersion[]` (newest first; `change_note` holds the AI prompt for `ai_edit` entries) |
+| GET | `meal-plan?starts_on=&ends_on=` | `ends_on` optional (defaults to `starts_on+6d`) | required | `MealPlanWeek` — `{starts_on, ends_on, items[]}`, one recipe per day, up to 42-day range |
+| POST | `meal-plan/items` | `{recipe_id, planned_on, start_time?}` | required | `MealPlanItem` — upserts by day |
+| PATCH | `meal-plan/items/:id` | `{planned_on, start_time}` (both required) | required | `MealPlanItem` — Day view drag |
+| DELETE | `meal-plan/items/:id` | — | required | `204` |
+| POST | `meal-plan/suggest` | `{starts_on, ends_on}` | required* | `MealPlanSuggestion` |
+| POST | `meal-plan/chat` | `{starts_on, ends_on, initial, history[], message}` | required* | `MealPlanSuggestion` — stateless, resend `initial` + `history` every call |
+| POST | `meal-plan/chat/stream` | `{starts_on, ends_on, message}` | required* | SSE (`text/event-stream`) — not axios, `apiService.streamMealPlanChatReply` uses raw `fetch` + `response.body.getReader()`. Web only (no streaming `fetch` body on native); called in parallel with `meal-plan/chat`, purely for a live-typed reply while the real plan update is in flight |
+| POST | `meal-plan/variants/:recipe_id` | `{hint?}` | required* | `RecipeResponse & {variant_of_recipe_id}` — unsaved; persist via `add-recipe` |
+| GET | `preferences` | — | required | `UserPreferences` |
+| PATCH | `preferences` | full `UserPreferences` (server overwrites, not a merge — always send the complete object) | required | `UserPreferences` |
+
+\* the 4 AI meal-plan endpoints are wired under the same "optional auth" middleware as `/refine-recipe` etc., but their handlers 401 an anonymous caller (they operate on the caller's own saved recipes).
 
 The backend provisions users just-in-time from the JWT `sub` claim; there is no separate signup endpoint.
 
@@ -105,6 +137,11 @@ The backend provisions users just-in-time from the JWT `sub` claim; there is no 
 - `PatchRecipePayload` — PATCH body for manual edits
 - `RecipeVersion` — `{version, change_kind, change_note?, created_at, data}` — one entry from `GET recipes/:id/history`
 - `UserProfile` — `{name, email?, username?}`
+- `MealPlanItem` — `{id, recipe_id, recipe_title, planned_on, start_time}`; `MealPlanWeek` — `{starts_on, ends_on, items: MealPlanItem[]}`
+- `UserPreferences` — `{skill_level, dietary_prefs, disliked_ingredients, cooking_cadence, meal_plan_skip_days: Weekday[], meal_plan_batch_days: 1|2|3}` — the last two feed the meal-plan AI's system prompt server-side, editable from `PreferencesScreen` or WeekView's ad-hoc panel (both just PATCH the same row)
+- `MealPlanAssignment` — one proposed day: `{recipe_id, variant, variant_of_recipe_id, planned_on, start_time}` — exactly one of `recipe_id`/`variant` is non-null
+- `MealPlanSuggestion` — `{status: 'applied'|'needs_clarification', message, low_variety, assignments[]}` — the AI suggest/chat response envelope
+- `MealPlanChatTurn` — `{message, plan: MealPlanSuggestion}` — one exchange in the meal-plan chat history the client resends each call
 
 ## GenerateScreen Internals
 
@@ -153,6 +190,7 @@ the last `docHistory` snapshot and restores it.
 - **Voice generation** — `generateByVoice` throws immediately; backend does not support it. The recording UI is wired but the call is dead.
 - **Production API_BASE_URL** — placeholder string; must be updated before any release build.
 - **No .env wiring** — all config is hard-coded in `constants/index.ts`.
+- **Chat streaming is web-only** — `WeekView`'s live-typed reply (`streamMealPlanChatReply`) needs `response.body.getReader()`, which RN's native `fetch` doesn't support. On native, `handleChatSend` skips the stream call entirely and the turn just shows "…" until the (non-streamed) `meal-plan/chat` call resolves — functional, just not live-typed.
 
 ## Editing Guidance
 

@@ -15,10 +15,12 @@ import apiService from '../services/apiService';
 import authService from '../services/authService';
 import { Recipe, RecipeDocument, RecipeVersion } from '../types';
 import Loading from '../components/Loading';
+import RecipeView from '../components/RecipeView';
 import { useTheme, Theme } from '../context/ThemeContext';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useAlert } from '../context/AlertContext';
 import { TAGS_BY_GROUP, TAG_GROUP_LABELS, TAG_LABEL_BY_SLUG, TagGroup } from '../constants/tags';
+import { getCachedRecipes, setCachedRecipes } from '../utils/recipesCache';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Recipes'>;
 type SortMode = 'recent' | 'name';
@@ -83,6 +85,10 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   const [refiningId, setRefiningId] = useState<number | null>(null);
   const [refinePrompt, setRefinePrompt] = useState('');
   const [refineLoading, setRefineLoading] = useState(false);
+  const [variantSourceId, setVariantSourceId] = useState<number | null>(null);
+  const [variantHint, setVariantHint] = useState('');
+  const [variantLoading, setVariantLoading] = useState(false);
+  const [variantPreview, setVariantPreview] = useState<{ recipename: string; recipe: string; structured: RecipeDocument; variantOfRecipeId: number } | null>(null);
   const [historyId, setHistoryId] = useState<number | null>(null);
   const [historyEntries, setHistoryEntries] = useState<RecipeVersion[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -96,18 +102,22 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   }, []);
 
   const checkAuthAndLoadRecipes = async () => {
-    setLoading(true);
     try {
       const authenticated = await authService.isAuthenticated();
       setIsAuthenticated(authenticated);
-      
-      if (authenticated) {
+      if (!authenticated) return;
+
+      // Cache is the source of truth for opening this screen - avoids a loading
+      // spinner on every visit. It's only refreshed from the API on pull-to-refresh,
+      // or updated directly by local mutations and by saving a new recipe.
+      const cached = await getCachedRecipes();
+      if (cached) {
+        setRecipes(cached);
+      } else {
         await loadRecipes();
       }
     } catch (error) {
       console.error('Error checking auth:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -117,10 +127,11 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     } else {
       setLoading(true);
     }
-    
+
     try {
       const data = await apiService.getRecipes();
       setRecipes(data);
+      setCachedRecipes(data);
     } catch (error) {
       console.error('Error loading recipes:', error);
       showAlert('Error', 'Failed to load recipes');
@@ -128,6 +139,13 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
       setLoading(false);
       setRefreshing(false);
     }
+  };
+
+  // Applies a locally-known-correct recipe list (post edit/delete/vote) to both
+  // screen state and the cache, without a round-trip to the API.
+  const applyRecipes = (next: Recipe[]) => {
+    setRecipes(next);
+    setCachedRecipes(next);
   };
 
   const onRefresh = useCallback(() => {
@@ -146,12 +164,31 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
 
     try {
       await apiService.deleteRecipe(recipeId);
-      setRecipes(prev => prev.filter(r => r.id !== recipeId));
+      applyRecipes(recipes.filter(r => r.id !== recipeId));
       setExpandedId(prev => (prev === recipeId ? null : prev));
       showAlert('Success', 'Recipe deleted successfully');
     } catch (error) {
       console.error('Error deleting recipe:', error);
       showAlert('Error', 'Failed to delete recipe');
+    }
+  };
+
+  // Toggles a thumbs up/down vote on a recipe: tapping the already-active vote clears
+  // it, tapping the other one switches it. Optimistic update, reverted on error.
+  const handleVote = async (recipe: Recipe, vote: 1 | -1) => {
+    const prevVote = recipe.my_vote ?? null;
+    const nextVote = prevVote === vote ? null : vote;
+    applyRecipes(recipes.map(r => (r.id === recipe.id ? { ...r, my_vote: nextVote } : r)));
+    try {
+      if (nextVote === null) {
+        await apiService.unvoteRecipe(recipe.id);
+      } else {
+        await apiService.voteRecipe(recipe.id, nextVote);
+      }
+    } catch (error) {
+      console.error('Error voting on recipe:', error);
+      applyRecipes(recipes.map(r => (r.id === recipe.id ? { ...r, my_vote: prevVote } : r)));
+      showAlert('Error', 'Failed to save your vote');
     }
   };
 
@@ -172,7 +209,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     if (recipe.structured) return recipe.structured;
     try {
       const full = await apiService.getRecipeById(recipe.id);
-      setRecipes(prev => prev.map(r => (r.id === recipe.id ? full : r)));
+      applyRecipes(recipes.map(r => (r.id === recipe.id ? full : r)));
       return full.structured ?? null;
     } catch {
       showAlert('Error', 'Failed to load recipe details');
@@ -289,7 +326,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     setSavingEdit(true);
     try {
       const updated = await apiService.patchRecipe({ id: editingId, structured: editDoc });
-      setRecipes(prev => prev.map(r => (r.id === updated.id ? updated : r)));
+      applyRecipes(recipes.map(r => (r.id === updated.id ? updated : r)));
       setEditingId(null);
       setEditDoc(null);
     } catch {
@@ -325,7 +362,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
       const updated = await apiService.patchRecipe({
         id: recipe.id, structured: result.structured, ai_sourced: true, change_prompt: refinePrompt.trim(),
       });
-      setRecipes(prev => prev.map(r => (r.id === updated.id ? updated : r)));
+      applyRecipes(recipes.map(r => (r.id === updated.id ? updated : r)));
       setRefinePrompt('');
       setRefiningId(null);
     } catch {
@@ -334,6 +371,55 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
       setRefineLoading(false);
     }
   };
+
+  // Unlike Refine (which overwrites the recipe in place), a variant is a genuinely
+  // different twist proposed alongside the original — it only becomes a real, separate
+  // recipe if the user accepts it.
+  const runCreateVariant = async (recipe: Recipe) => {
+    const doc = await ensureStructured(recipe);
+    if (!doc) {
+      showAlert('Error', 'This recipe has no structured data to vary');
+      return;
+    }
+    setVariantLoading(true);
+    try {
+      const result = await apiService.generateVariant(recipe.id, variantHint.trim() || undefined);
+      if (!result.structured) {
+        showAlert('Error', 'Failed to generate a variant');
+        return;
+      }
+      setVariantPreview({
+        recipename: result.recipename, recipe: result.recipe,
+        structured: result.structured, variantOfRecipeId: result.variant_of_recipe_id,
+      });
+    } catch {
+      showAlert('Error', 'Failed to generate a variant');
+    } finally {
+      setVariantLoading(false);
+    }
+  };
+
+  const acceptVariant = async () => {
+    if (!variantPreview) return;
+    try {
+      const saved = await apiService.saveRecipe(
+        variantPreview.recipename, variantPreview.recipe, undefined, variantPreview.structured,
+        undefined, undefined, undefined, variantPreview.variantOfRecipeId,
+      );
+      applyRecipes([saved, ...recipes]);
+      setVariantPreview(null);
+      setVariantSourceId(null);
+      setVariantHint('');
+    } catch {
+      showAlert('Error', 'Failed to save the variant');
+    }
+  };
+
+  const recipeNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    recipes.forEach(r => map.set(r.id, r.recipename));
+    return map;
+  }, [recipes]);
 
   const visibleRecipes = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -391,7 +477,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
         <>
           <View style={styles.toolbar}>
             <View style={styles.searchRow}>
-              <TextInput
+              <TextInput autoComplete="off"
                 style={styles.searchInput}
                 placeholder="Search recipes..."
                 placeholderTextColor={theme.muted}
@@ -465,6 +551,11 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
               >
                 <View style={styles.cardHeaderMain}>
                   <Text style={styles.recipeName}>{recipe.recipename}</Text>
+                  {recipe.variant_of_recipe_id != null && (
+                    <Text style={styles.variantOfCaption}>
+                      Variant of {recipeNameById.get(recipe.variant_of_recipe_id) ?? 'a saved recipe'}
+                    </Text>
+                  )}
                   {((recipe.tags ?? []).length > 0 || recipe.manually_edited) && (
                     <View style={styles.tagBadgeRow}>
                       {recipe.manually_edited && (
@@ -495,7 +586,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                     <>
                       <ScrollView style={styles.editFormScroll} nestedScrollEnabled>
                         <Text style={styles.fieldLabel}>Title</Text>
-                        <TextInput
+                        <TextInput autoComplete="off"
                           style={styles.fieldInput}
                           value={editDoc.title}
                           onChangeText={t => updateDoc({ title: t })}
@@ -503,7 +594,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                         />
 
                         <Text style={styles.fieldLabel}>Summary</Text>
-                        <TextInput
+                        <TextInput autoComplete="off"
                           style={[styles.fieldInput, styles.fieldInputMultiline]}
                           value={editDoc.summary ?? ''}
                           onChangeText={t => updateDoc({ summary: t })}
@@ -514,7 +605,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                         <View style={styles.fieldRow}>
                           <View style={styles.fieldCol}>
                             <Text style={styles.fieldLabel}>Servings</Text>
-                            <TextInput
+                            <TextInput autoComplete="off"
                               style={styles.fieldInput}
                               keyboardType="numeric"
                               value={editDoc.servings != null ? String(editDoc.servings) : ''}
@@ -524,7 +615,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                           </View>
                           <View style={styles.fieldCol}>
                             <Text style={styles.fieldLabel}>Prep (min)</Text>
-                            <TextInput
+                            <TextInput autoComplete="off"
                               style={styles.fieldInput}
                               keyboardType="numeric"
                               value={editDoc.prep_minutes != null ? String(editDoc.prep_minutes) : ''}
@@ -534,7 +625,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                           </View>
                           <View style={styles.fieldCol}>
                             <Text style={styles.fieldLabel}>Cook (min)</Text>
-                            <TextInput
+                            <TextInput autoComplete="off"
                               style={styles.fieldInput}
                               keyboardType="numeric"
                               value={editDoc.cook_minutes != null ? String(editDoc.cook_minutes) : ''}
@@ -545,7 +636,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                         </View>
 
                         <Text style={styles.fieldLabel}>Difficulty</Text>
-                        <TextInput
+                        <TextInput autoComplete="off"
                           style={styles.fieldInput}
                           value={editDoc.difficulty ?? ''}
                           onChangeText={t => updateDoc({ difficulty: t })}
@@ -556,14 +647,14 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                         <Text style={styles.sectionLabel}>Ingredients</Text>
                         {editDoc.ingredients.map((ing, idx) => (
                           <View key={idx} style={styles.ingredientEditRow}>
-                            <TextInput
+                            <TextInput autoComplete="off"
                               style={[styles.fieldInput, styles.ingredientAmountInput]}
                               placeholder="Amount"
                               placeholderTextColor={theme.placeholder}
                               value={ing.quantity_text ?? ''}
                               onChangeText={t => updateIngredient(idx, { quantity_text: t })}
                             />
-                            <TextInput
+                            <TextInput autoComplete="off"
                               style={[styles.fieldInput, styles.ingredientItemInput]}
                               placeholder="Ingredient"
                               placeholderTextColor={theme.placeholder}
@@ -594,7 +685,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                                 <Ionicons name="close" size={13} color={theme.muted} />
                               </TouchableOpacity>
                             </View>
-                            <TextInput
+                            <TextInput autoComplete="off"
                               style={[styles.fieldInput, styles.stepTextInput]}
                               placeholder="Step"
                               placeholderTextColor={theme.placeholder}
@@ -605,7 +696,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                             <View style={styles.fieldRow}>
                               <View style={styles.fieldCol}>
                                 <Text style={styles.fieldLabel}>Timer (sec)</Text>
-                                <TextInput
+                                <TextInput autoComplete="off"
                                   style={styles.fieldInput}
                                   keyboardType="numeric"
                                   value={step.timer_seconds != null ? String(step.timer_seconds) : ''}
@@ -615,7 +706,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                               </View>
                               <View style={styles.fieldCol}>
                                 <Text style={styles.fieldLabel}>Temp (°C)</Text>
-                                <TextInput
+                                <TextInput autoComplete="off"
                                   style={styles.fieldInput}
                                   keyboardType="numeric"
                                   value={step.temperature_c != null ? String(step.temperature_c) : ''}
@@ -667,13 +758,13 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                     </>
                   ) : (
                     <>
-                      <ScrollView style={styles.recipeContentScroll}>
-                        <Text style={styles.recipeText}>{recipe.recipe}</Text>
+                      <ScrollView style={styles.recipeContentScroll} nestedScrollEnabled>
+                        <RecipeView structured={recipe.structured} markdown={recipe.recipe} />
                       </ScrollView>
 
                       {refiningId === recipe.id && (
                         <View style={styles.refineBox}>
-                          <TextInput
+                          <TextInput autoComplete="off"
                             style={[styles.fieldInput, styles.fieldInputMultiline]}
                             placeholder="e.g. make it vegetarian, double the servings..."
                             placeholderTextColor={theme.placeholder}
@@ -689,6 +780,46 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                           >
                             <Text style={styles.cookButtonText}>{refineLoading ? 'Thinking…' : 'Apply'}</Text>
                           </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {variantSourceId === recipe.id && (
+                        <View style={styles.refineBox}>
+                          {variantPreview ? (
+                            <View style={styles.variantPreviewBox}>
+                              <Text style={styles.variantPreviewTitle}>{variantPreview.recipename}</Text>
+                              {variantPreview.structured.summary ? (
+                                <Text style={styles.variantPreviewSummary}>{variantPreview.structured.summary}</Text>
+                              ) : null}
+                              <View style={styles.variantActionsRow}>
+                                <TouchableOpacity style={styles.variantDiscardButton} onPress={() => setVariantPreview(null)}>
+                                  <Text style={styles.variantDiscardButtonText}>Discard</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.variantAcceptButton} onPress={acceptVariant}>
+                                  <Text style={styles.variantAcceptButtonText}>Save as new recipe</Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          ) : (
+                            <>
+                              <TextInput autoComplete="off"
+                                style={[styles.fieldInput, styles.fieldInputMultiline]}
+                                placeholder="Optional: steer the twist, e.g. make it Thai-style"
+                                placeholderTextColor={theme.placeholder}
+                                value={variantHint}
+                                onChangeText={setVariantHint}
+                                editable={!variantLoading}
+                                multiline
+                              />
+                              <TouchableOpacity
+                                style={[styles.cookButton, variantLoading && styles.btnDisabled]}
+                                onPress={() => runCreateVariant(recipe)}
+                                disabled={variantLoading}
+                              >
+                                <Text style={styles.cookButtonText}>{variantLoading ? 'Thinking…' : 'Generate'}</Text>
+                              </TouchableOpacity>
+                            </>
+                          )}
                         </View>
                       )}
 
@@ -736,6 +867,18 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                           <Ionicons name="sparkles-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
                           <Text style={styles.cookButtonText}>Refine with AI</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.cookButton}
+                          onPress={() => {
+                            setHistoryId(null);
+                            setVariantPreview(null);
+                            setVariantSourceId(prev => (prev === recipe.id ? null : recipe.id));
+                            setVariantHint('');
+                          }}
+                        >
+                          <Ionicons name="copy-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
+                          <Text style={styles.cookButtonText}>Create Variant</Text>
+                        </TouchableOpacity>
                         <TouchableOpacity style={styles.cookButton} onPress={() => openHistory(recipe)}>
                           <Ionicons name="time-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
                           <Text style={styles.cookButtonText}>History</Text>
@@ -746,6 +889,20 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                         >
                           <Ionicons name="flame-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
                           <Text style={styles.cookButtonText}>Cook</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.cookButton} onPress={() => handleVote(recipe, 1)}>
+                          <Ionicons
+                            name={recipe.my_vote === 1 ? 'thumbs-up' : 'thumbs-up-outline'}
+                            size={14}
+                            color={theme.accent}
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.cookButton} onPress={() => handleVote(recipe, -1)}>
+                          <Ionicons
+                            name={recipe.my_vote === -1 ? 'thumbs-down' : 'thumbs-down-outline'}
+                            size={14}
+                            color={theme.accent}
+                          />
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.deleteButton}
@@ -927,6 +1084,11 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     fontWeight: '600',
     color: t.text,
   },
+  variantOfCaption: {
+    fontSize: 12,
+    color: t.subtext,
+    marginTop: 2,
+  },
   tagBadgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -959,13 +1121,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     padding: 15,
   },
   recipeContentScroll: {
-    maxHeight: 300,
+    maxHeight: 420,
     marginBottom: 15,
-  },
-  recipeText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: t.subtext,
   },
   cardActions: {
     flexDirection: 'row',
@@ -1109,6 +1266,54 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   refineBox: {
     marginBottom: 15,
     gap: 8,
+  },
+  variantPreviewBox: {
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: t.hairline,
+    backgroundColor: t.surface,
+    gap: 6,
+  },
+  variantPreviewTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: t.text,
+  },
+  variantPreviewSummary: {
+    fontSize: 13,
+    color: t.subtext,
+    lineHeight: 18,
+  },
+  variantActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  variantAcceptButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: t.accent,
+  },
+  variantAcceptButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  variantDiscardButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: t.border,
+  },
+  variantDiscardButtonText: {
+    color: t.subtext,
+    fontWeight: '600',
+    fontSize: 13,
   },
   historyBox: {
     marginBottom: 15,

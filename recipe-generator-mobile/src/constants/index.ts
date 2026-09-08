@@ -14,12 +14,12 @@ export const KEYCLOAK_CONFIG = {
   realm: __DEV__ ? KEYCLOAK_DEV_REALM : KEYCLOAK_PROD_REALM,
   clientId: 'frontend',
   redirectUri: 'com.recipegenerator://oauth/callback',
-  googleIdpHint: 'google',
 } as const;
 
 // API Endpoints (relative to API_BASE_URL)
 export const API_ENDPOINTS = {
   GENERATE_RECIPE: 'generate',
+  GENERATE_RECIPE_STREAM: 'generate/stream',
   TRANSCRIBE_AUDIO: 'transcribe',
   UPDATE_RECIPE: 'update-recipe',
   GET_RECIPES: 'get-recipes',
@@ -31,6 +31,15 @@ export const API_ENDPOINTS = {
   COOKING_CHAT: 'cooking-chat',
   GET_RECIPE: 'recipes',
   REFINE_RECIPE: 'refine-recipe',
+  PREFERENCES: 'preferences',
+  DECLINE_GENERATION: 'decline-generation',
+  MEAL_PLAN: 'meal-plan',
+  MEAL_PLAN_ITEMS: 'meal-plan/items',
+  MEAL_PLAN_SUGGEST: 'meal-plan/suggest',
+  MEAL_PLAN_CHAT: 'meal-plan/chat',
+  MEAL_PLAN_CHAT_STREAM: 'meal-plan/chat/stream',
+  MEAL_PLAN_VARIANTS: 'meal-plan/variants',
+  MEAL_PLAN_WEEK_PREFERENCES: 'meal-plan/week-preferences',
 } as const;
 
 // Storage Keys
