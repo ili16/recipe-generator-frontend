@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import apiService from '../services/apiService';
 import authService from '../services/authService';
-import { Recipe, RecipeDocument } from '../types';
+import { Collection, Recipe, RecipeDocument } from '../types';
 import { useAlert } from '../context/AlertContext';
 import { getCachedRecipes, setCachedRecipes } from '../utils/recipesCache';
 import type { VariantPreview } from '../screens/recipes/RecipePanels';
@@ -14,6 +14,9 @@ export function useRecipeLibrary() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // Trash is loaded on demand — it's a side view, not part of the cached library.
+  const [trash, setTrash] = useState<Recipe[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
 
   // Applies a locally-known-correct recipe list (post edit/delete/vote) to both
   // screen state and the cache, without a round-trip to the API.
@@ -64,7 +67,7 @@ export function useRecipeLibrary() {
   const remove = async (recipeId: number) => {
     const confirmed = await confirmAction(
       'Delete Recipe',
-      'Are you sure you want to delete this recipe?',
+      'This moves the recipe to the trash. It stays restorable for 30 days.',
       { confirmLabel: 'Delete', destructive: true }
     );
     if (!confirmed) return false;
@@ -72,11 +75,90 @@ export function useRecipeLibrary() {
     try {
       await apiService.deleteRecipe(recipeId);
       applyRecipes(recipes.filter(r => r.id !== recipeId));
-      showAlert('Success', 'Recipe deleted successfully', 'success');
+      showAlert('Moved to trash', 'You can restore it from the trash for 30 days', 'success');
       return true;
     } catch (error) {
       console.error('Error deleting recipe:', error);
       showAlert('Error', 'Failed to delete recipe', 'error');
+      return false;
+    }
+  };
+
+  const loadCollections = useCallback(async () => {
+    try {
+      setCollections(await apiService.getCollections());
+    } catch (error) {
+      console.error('Error loading collections:', error);
+    }
+  }, []);
+
+  const createCollection = async (name: string): Promise<Collection | null> => {
+    try {
+      const created = await apiService.createCollection(name);
+      // Re-creating an existing name returns that collection, so replace rather than append.
+      setCollections(prev => [...prev.filter(c => c.id !== created.id), created].sort((a, b) => a.name.localeCompare(b.name)));
+      return created;
+    } catch (error) {
+      console.error('Error creating collection:', error);
+      showAlert('Error', 'Failed to create the collection', 'error');
+      return null;
+    }
+  };
+
+  const removeCollection = async (collection: Collection) => {
+    const confirmed = await confirmAction(
+      `Delete "${collection.name}"?`,
+      'The collection goes away. The recipes in it stay in your library.',
+      { confirmLabel: 'Delete', destructive: true },
+    );
+    if (!confirmed) return false;
+    try {
+      await apiService.deleteCollection(collection.id);
+      setCollections(prev => prev.filter(c => c.id !== collection.id));
+      return true;
+    } catch (error) {
+      console.error('Error deleting collection:', error);
+      showAlert('Error', 'Failed to delete the collection', 'error');
+      return false;
+    }
+  };
+
+  // Optimistic: the membership row is the only state, and a failure puts it straight back.
+  const setRecipeCollection = async (collectionId: number, recipeId: number, member: boolean) => {
+    const apply = (on: boolean) => setCollections(prev => prev.map(c => (
+      c.id !== collectionId ? c
+        : { ...c, recipe_ids: on ? [recipeId, ...c.recipe_ids.filter(id => id !== recipeId)] : c.recipe_ids.filter(id => id !== recipeId) }
+    )));
+    apply(member);
+    try {
+      await apiService.setRecipeCollection(collectionId, recipeId, member);
+    } catch (error) {
+      console.error('Error updating collection membership:', error);
+      apply(!member);
+      showAlert('Error', 'Failed to update the collection', 'error');
+    }
+  };
+
+  const loadTrash = useCallback(async () => {
+    try {
+      setTrash(await apiService.getTrash());
+    } catch (error) {
+      console.error('Error loading trash:', error);
+      showAlert('Error', 'Failed to load the trash', 'error');
+    }
+  }, [showAlert]);
+
+  // Restoring puts the recipe back at the top of the library optimistically; the next
+  // refresh re-sorts it by updated_at, which is where it actually belongs.
+  const restore = async (recipe: Recipe) => {
+    try {
+      await apiService.restoreRecipe(recipe.id);
+      setTrash(prev => prev.filter(r => r.id !== recipe.id));
+      applyRecipes([recipe, ...recipes.filter(r => r.id !== recipe.id)]);
+      return true;
+    } catch (error) {
+      console.error('Error restoring recipe:', error);
+      showAlert('Error', 'Failed to restore the recipe', 'error');
       return false;
     }
   };
@@ -207,5 +289,7 @@ export function useRecipeLibrary() {
     refresh: () => loadRecipes(true),
     refreshQuietly,
     remove, vote, ensureStructured, saveEdit, refine, generateVariant, acceptVariant, loadHistory,
+    trash, loadTrash, restore,
+    collections, loadCollections, createCollection, removeCollection, setRecipeCollection,
   };
 }

@@ -86,7 +86,8 @@ src/
 ├── hooks/
 │   ├── useCookingSession.ts    — the cooking run: phase, step, notes, and the one agent
 │   │                             thread its AI refine and "Ask AI" questions share (3.13)
-│   ├── useRecipeLibrary.ts     — the saved-recipe list, its cache, and every mutation on it
+│   ├── useRecipeLibrary.ts     — the saved-recipe list, its cache, and every mutation on it,
+│   │                             plus the trash (8.2) and collections (8.1) that hang off it
 │   ├── useEscapeBack.ts        — web: Escape key → goBack
 │   └── useVoiceInput.ts        — the three voice implementations behind one interface
 ├── navigation/
@@ -100,8 +101,9 @@ src/
 │   │                             tool activity, artifact cards rendered via RecipeView
 │   ├── chat/Composer.tsx       — the composer: text + photo attachments + voice, the four
 │   │                             former GenerateScreen input modes as one input
-│   ├── RecipesScreen.tsx       — list/search/filter/expand; the pieces live in screens/recipes/
-│   │                             and hooks/useRecipeLibrary (BACKLOG 5.0). 207 lines
+│   ├── RecipesScreen.tsx       — list/search/filter/expand, the collection filter and the
+│   │                             trash view; the pieces live in screens/recipes/ and
+│   │                             hooks/useRecipeLibrary (BACKLOG 5.0)
 │   ├── recipes/                — RecipeToolbar, RecipeCard, RecipeEditForm, RecipePanels
 │   │                             (refine · variant · history), plus the styles they share
 │   ├── CookingModeScreen.tsx   — phase switch only; the 6 phases live in screens/cooking/

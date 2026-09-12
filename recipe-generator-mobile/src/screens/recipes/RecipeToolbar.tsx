@@ -5,6 +5,7 @@ import { type } from '../../theme';
 import { TAGS_BY_GROUP, TAG_GROUP_LABELS, TagGroup } from '../../constants/tags';
 import { makeSharedStyles } from './styles';
 import { Chip } from '../../components/ui';
+import { Collection } from '../../types';
 
 export type SortMode = 'recent' | 'name';
 
@@ -15,9 +16,16 @@ interface Props {
   onToggleTag: (slug: string) => void;
   sortMode: SortMode;
   onToggleSort: () => void;
+  trashMode: boolean;
+  onToggleTrash: () => void;
+  collections: Collection[];
+  activeCollectionId: number | null;
+  onSelectCollection: (id: number | null) => void;
+  onDeleteCollection: (collection: Collection) => void;
 }
 
-const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onToggleTag, sortMode, onToggleSort }) => {
+const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onToggleTag, sortMode, onToggleSort, trashMode, onToggleTrash,
+  collections, activeCollectionId, onSelectCollection, onDeleteCollection }) => {
   const { theme } = useTheme();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -26,27 +34,59 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
   return (
     <View style={styles.toolbar}>
       <View style={styles.searchRow}>
-        <TextInput autoComplete="off"
-          style={styles.searchInput}
-          placeholder="Search recipes..."
-          placeholderTextColor={theme.muted}
-          value={search}
-          onChangeText={onSearch}
-        />
+        {/* Search, tags and sort are library-only — the trash is a short flat list. */}
+        {!trashMode && (
+          <>
+            <TextInput autoComplete="off"
+              style={styles.searchInput}
+              placeholder="Search recipes..."
+              placeholderTextColor={theme.muted}
+              value={search}
+              onChangeText={onSearch}
+            />
+            <TouchableOpacity
+              style={[styles.filterToggle, (showFilters || selectedTags.size > 0) && styles.filterToggleActive]}
+              onPress={() => setShowFilters(v => !v)}
+            >
+              <Text style={[styles.filterToggleText, (showFilters || selectedTags.size > 0) && styles.filterToggleTextActive]}>
+                Tags{selectedTags.size > 0 ? ` (${selectedTags.size})` : ''}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sortToggle} onPress={onToggleSort}>
+              <Text style={styles.sortToggleText}>{sortMode === 'recent' ? 'Recent' : 'A–Z'}</Text>
+            </TouchableOpacity>
+          </>
+        )}
         <TouchableOpacity
-          style={[styles.filterToggle, (showFilters || selectedTags.size > 0) && styles.filterToggleActive]}
-          onPress={() => setShowFilters(v => !v)}
+          style={[styles.sortToggle, trashMode && styles.filterToggleActive, trashMode && styles.trashToggleWide]}
+          onPress={onToggleTrash}
         >
-          <Text style={[styles.filterToggleText, (showFilters || selectedTags.size > 0) && styles.filterToggleTextActive]}>
-            Tags{selectedTags.size > 0 ? ` (${selectedTags.size})` : ''}
+          <Text style={[styles.sortToggleText, trashMode && styles.filterToggleTextActive]}>
+            {trashMode ? '← Back to recipes' : 'Trash'}
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.sortToggle} onPress={onToggleSort}>
-          <Text style={styles.sortToggleText}>{sortMode === 'recent' ? 'Recent' : 'A–Z'}</Text>
         </TouchableOpacity>
       </View>
 
-      {showFilters && (
+      {/* Collections are a one-at-a-time filter, unlike tags: "which of these are mine
+          for Sunday" is a single answer. Long-press a chip to delete the collection. */}
+      {!trashMode && collections.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.collectionRow}>
+          <View style={s.tagRow}>
+            <Chip label="All" selected={activeCollectionId === null} onPress={() => onSelectCollection(null)} />
+            {collections.map(c => (
+              <Chip
+                key={c.id}
+                label={`${c.name} (${c.recipe_ids.length})`}
+                selected={activeCollectionId === c.id}
+                onPress={() => onSelectCollection(activeCollectionId === c.id ? null : c.id)}
+                onLongPress={() => onDeleteCollection(c)}
+              />
+            ))}
+          </View>
+        </ScrollView>
+      )}
+
+      {!trashMode && showFilters && (
         <ScrollView style={styles.filterPanel} nestedScrollEnabled>
           {(Object.keys(TAGS_BY_GROUP) as TagGroup[]).map(group => (
             <View key={group} style={s.filterGroup}>
@@ -116,6 +156,12 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     borderWidth: 1,
     borderColor: t.border,
     backgroundColor: t.surface,
+  },
+  collectionRow: {
+    marginTop: 10,
+  },
+  trashToggleWide: {
+    flex: 1,
   },
   sortToggleText: {
     ...type.body, fontSize: 13,

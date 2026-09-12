@@ -1,14 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { RecipeDocument, RecipeVersion } from '../../types';
+import { Collection, RecipeDocument, RecipeVersion } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
 import { type } from '../../theme';
 import { summarizeVersionChange } from '../../utils/versionSummary';
 import { makeSharedStyles } from './styles';
+import { Chip } from '../../components/ui';
 
-// The three inline panels an expanded recipe card can show below the recipe:
-// refine-with-AI, create-variant, and edit history.
+// The inline panels an expanded recipe card can show below the recipe:
+// refine-with-AI, create-variant, edit history, and collection membership.
 
 export interface VariantPreview {
   recipename: string;
@@ -231,3 +232,70 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginTop: 3,
   },
 });
+
+/**
+ * Collection membership for one recipe (BACKLOG 8.1): every collection as a chip,
+ * selected meaning "this recipe is in it", plus one field to name a new one. Tapping a
+ * chip is the whole add/remove interaction — there is no separate confirm.
+ */
+export const CollectionsPanel: React.FC<{
+  collections: Collection[];
+  recipeId: number;
+  onToggle: (collectionId: number, member: boolean) => void;
+  onCreate: (name: string) => Promise<Collection | null>;
+}> = ({ collections, recipeId, onToggle, onCreate }) => {
+  const { theme } = useTheme();
+  const s = useMemo(() => makeSharedStyles(theme), [theme]);
+  const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const create = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCreating(true);
+    const created = await onCreate(trimmed);
+    setCreating(false);
+    if (created) {
+      setName('');
+      // A brand-new collection is only useful if the recipe lands in it.
+      if (!created.recipe_ids.includes(recipeId)) onToggle(created.id, true);
+    }
+  };
+
+  return (
+    <View style={s.refineBox}>
+      {collections.length === 0 ? (
+        <Text style={s.fieldLabel}>No collections yet — name one below.</Text>
+      ) : (
+        <View style={s.tagRow}>
+          {collections.map(c => (
+            <Chip
+              key={c.id}
+              label={c.name}
+              selected={c.recipe_ids.includes(recipeId)}
+              onPress={() => onToggle(c.id, !c.recipe_ids.includes(recipeId))}
+            />
+          ))}
+        </View>
+      )}
+      <View style={s.fieldRow}>
+        <TextInput autoComplete="off"
+          style={[s.fieldInput, s.fieldCol]}
+          placeholder="New collection name"
+          placeholderTextColor={theme.muted}
+          value={name}
+          onChangeText={setName}
+          editable={!creating}
+          onSubmitEditing={create}
+        />
+        <TouchableOpacity
+          style={[s.cookButton, (!name.trim() || creating) && s.btnDisabled]}
+          onPress={create}
+          disabled={!name.trim() || creating}
+        >
+          <Text style={s.cookButtonText}>Add</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};

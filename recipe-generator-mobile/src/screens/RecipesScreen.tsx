@@ -9,6 +9,7 @@ import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useRecipeLibrary } from '../hooks/useRecipeLibrary';
 import RecipeToolbar, { SortMode } from './recipes/RecipeToolbar';
 import RecipeCard from './recipes/RecipeCard';
+import { Button, Card, Text as UIText } from '../components/ui';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Recipes'>;
 
@@ -18,6 +19,8 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   const [search, setSearch] = useState('');
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [sortMode, setSortMode] = useState<SortMode>('recent');
+  const [trashMode, setTrashMode] = useState(false);
+  const [activeCollectionId, setActiveCollectionId] = useState<number | null>(null);
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
@@ -26,6 +29,8 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   // AI-suggested meal-plan variant) — a silent background refresh, no spinner, so this
   // doesn't fight the cache-first mount.
   useEffect(() => navigation.addListener('focus', lib.refreshQuietly), [navigation]);
+
+  useEffect(() => { if (lib.isAuthenticated) lib.loadCollections(); }, [lib.isAuthenticated, lib.loadCollections]);
 
   const toggleTagFilter = (slug: string) => {
     setSelectedTags(prev => {
@@ -43,19 +48,22 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
 
   const visibleRecipes = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const inCollection = activeCollectionId === null
+      ? null
+      : new Set(lib.collections.find(c => c.id === activeCollectionId)?.recipe_ids ?? []);
     let list = lib.recipes.filter(r => {
       const matchesSearch = !q ||
         r.recipename.toLowerCase().includes(q) ||
         r.recipe.toLowerCase().includes(q);
       const matchesTags = selectedTags.size === 0 ||
         Array.from(selectedTags).every(t => (r.tags ?? []).includes(t));
-      return matchesSearch && matchesTags;
+      return matchesSearch && matchesTags && (inCollection === null || inCollection.has(r.id));
     });
     if (sortMode === 'name') {
       list = [...list].sort((a, b) => a.recipename.localeCompare(b.recipename));
     }
     return list;
-  }, [lib.recipes, search, selectedTags, sortMode]);
+  }, [lib.recipes, lib.collections, search, selectedTags, sortMode, activeCollectionId]);
 
   if (!lib.isAuthenticated) {
     return (
@@ -74,7 +82,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
-  if (lib.loading && lib.recipes.length === 0) {
+  if (!trashMode && lib.loading && lib.recipes.length === 0) {
     return (
       <View style={styles.container}>
         <Loading visible={true} message="Loading recipes..." />
@@ -82,7 +90,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
-  if (lib.recipes.length === 0) {
+  if (!trashMode && lib.recipes.length === 0) {
     return (
       <View style={styles.container}>
         <View style={styles.emptyContainer}>
@@ -105,9 +113,42 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
         onToggleTag={toggleTagFilter}
         sortMode={sortMode}
         onToggleSort={() => setSortMode(m => (m === 'recent' ? 'name' : 'recent'))}
+        collections={lib.collections}
+        activeCollectionId={activeCollectionId}
+        onSelectCollection={setActiveCollectionId}
+        onDeleteCollection={async c => {
+          if (await lib.removeCollection(c) && activeCollectionId === c.id) setActiveCollectionId(null);
+        }}
+        trashMode={trashMode}
+        onToggleTrash={() => {
+          setTrashMode(v => !v);
+          if (!trashMode) lib.loadTrash();
+        }}
       />
 
-      {visibleRecipes.length === 0 ? (
+
+      {trashMode ? (
+        lib.trash.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <UIText variant="title">Trash is empty</UIText>
+            <UIText tone="muted" style={{ marginTop: 8, textAlign: 'center' }}>
+              Deleted recipes stay here for 30 days, then are removed for good
+            </UIText>
+          </View>
+        ) : (
+          <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+            {lib.trash.map(recipe => (
+              <Card key={recipe.id} style={styles.trashRow}>
+                <View style={styles.trashText}>
+                  <UIText variant="label" numberOfLines={1}>{recipe.recipename}</UIText>
+                  <UIText variant="caption" tone="muted">{deletedLabel(recipe.deleted_at)}</UIText>
+                </View>
+                <Button title="Restore" variant="secondary" size="sm" onPress={() => lib.restore(recipe)} />
+              </Card>
+            ))}
+          </ScrollView>
+        )
+      ) : visibleRecipes.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>No matching recipes</Text>
           <Text style={styles.emptySubtext}>Try a different search or fewer tag filters</Text>
@@ -145,12 +186,24 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
               onGenerateVariant={hint => lib.generateVariant(recipe, hint)}
               onAcceptVariant={preview => lib.acceptVariant(preview)}
               onLoadHistory={() => lib.loadHistory(recipe.id)}
+              collections={lib.collections}
+              onToggleCollection={(collectionId, member) => lib.setRecipeCollection(collectionId, recipe.id, member)}
+              onCreateCollection={lib.createCollection}
             />
           ))}
         </ScrollView>
       )}
     </View>
   );
+};
+
+// "Deleted 3 days ago" — the trash's only per-row detail, and the one that tells the
+// user how long they have left of the 30.
+const deletedLabel = (deletedAt?: string) => {
+  if (!deletedAt) return 'Deleted';
+  const days = Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86_400_000);
+  if (days <= 0) return 'Deleted today';
+  return `Deleted ${days} day${days === 1 ? '' : 's'} ago · ${30 - days} left`;
 };
 
 const makeStyles = (t: Theme) => StyleSheet.create({
@@ -163,6 +216,15 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   scrollContent: {
     padding: 15,
+  },
+  trashRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  trashText: {
+    flex: 1,
   },
   emptyContainer: {
     flex: 1,

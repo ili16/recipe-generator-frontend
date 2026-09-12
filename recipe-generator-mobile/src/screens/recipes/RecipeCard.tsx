@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Recipe, RecipeDocument, RecipeVersion } from '../../types';
+import { Collection, Recipe, RecipeDocument, RecipeVersion } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
 import { type } from '../../theme';
 import RecipeView from '../../components/RecipeView';
@@ -10,7 +10,7 @@ import { TAG_LABEL_BY_SLUG } from '../../constants/tags';
 import { originLabel } from '../../utils/recipeOrigin';
 import { makeSharedStyles } from './styles';
 import RecipeEditForm from './RecipeEditForm';
-import { RefinePanel, VariantPanel, HistoryPanel, VariantPreview } from './RecipePanels';
+import { RefinePanel, VariantPanel, HistoryPanel, CollectionsPanel, VariantPreview } from './RecipePanels';
 
 interface Props {
   recipe: Recipe;
@@ -26,15 +26,19 @@ interface Props {
   onGenerateVariant: (hint: string) => Promise<VariantPreview | null>;
   onAcceptVariant: (preview: VariantPreview) => Promise<boolean>;
   onLoadHistory: () => Promise<RecipeVersion[]>;
+  collections: Collection[];
+  onToggleCollection: (collectionId: number, member: boolean) => void;
+  onCreateCollection: (name: string) => Promise<Collection | null>;
 }
 
-type Panel = 'none' | 'edit' | 'refine' | 'variant' | 'history';
+type Panel = 'none' | 'edit' | 'refine' | 'variant' | 'history' | 'collections';
 
 // One recipe in the library list: collapsed header, and when expanded the recipe plus
 // whichever of the four inline flows the user opened.
 const RecipeCard: React.FC<Props> = ({
   recipe, expanded, variantOfName, onToggle, onCook, onDelete, onVote,
   ensureStructured, onSaveEdit, onRefine, onGenerateVariant, onAcceptVariant, onLoadHistory,
+  collections, onToggleCollection, onCreateCollection,
 }) => {
   const { theme } = useTheme();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
@@ -48,6 +52,8 @@ const RecipeCard: React.FC<Props> = ({
   const [variantPreview, setVariantPreview] = useState<VariantPreview | null>(null);
   const [historyEntries, setHistoryEntries] = useState<RecipeVersion[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  const memberOf = collections.filter(c => c.recipe_ids.includes(recipe.id));
 
   const startEdit = async () => {
     const doc = (await ensureStructured(recipe)) ?? {
@@ -123,8 +129,15 @@ const RecipeCard: React.FC<Props> = ({
           {originLabel(recipe) && (
             <Text style={styles.variantOfCaption}>{originLabel(recipe)}</Text>
           )}
-          {((recipe.tags ?? []).length > 0 || recipe.manually_edited) && (
+          {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0) && (
             <View style={styles.tagBadgeRow}>
+              {memberOf.map(c => (
+                <Badge
+                  key={`c${c.id}`}
+                  label={c.name}
+                  icon={<Ionicons name="folder-outline" size={11} color={theme.accent} />}
+                />
+              ))}
               {recipe.manually_edited && (
                 <Badge
                   label="Manually edited"
@@ -174,6 +187,15 @@ const RecipeCard: React.FC<Props> = ({
 
               {panel === 'history' && <HistoryPanel loading={historyLoading} entries={historyEntries} />}
 
+              {panel === 'collections' && (
+                <CollectionsPanel
+                  collections={collections}
+                  recipeId={recipe.id}
+                  onToggle={onToggleCollection}
+                  onCreate={onCreateCollection}
+                />
+              )}
+
               <View style={s.cardActions}>
                 <TouchableOpacity style={s.cookButton} onPress={startEdit}>
                   <Ionicons name="create-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
@@ -195,6 +217,13 @@ const RecipeCard: React.FC<Props> = ({
                 >
                   <Ionicons name="copy-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
                   <Text style={s.cookButtonText}>Create Variant</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.cookButton}
+                  onPress={() => setPanel(p => (p === 'collections' ? 'none' : 'collections'))}
+                >
+                  <Ionicons name="folder-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
+                  <Text style={s.cookButtonText}>Collections</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cookButton} onPress={toggleHistory}>
                   <Ionicons name="time-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />

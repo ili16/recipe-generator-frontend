@@ -170,14 +170,16 @@ export const Chip: React.FC<{
   label: string;
   selected?: boolean;
   onPress?: () => void;
+  onLongPress?: () => void;
   icon?: ReactNode;
   trailing?: ReactNode;
   style?: StyleProp<ViewStyle>;
-}> = ({ label, selected, onPress, icon, trailing, style }) => {
+}> = ({ label, selected, onPress, onLongPress, icon, trailing, style }) => {
   const { theme } = useTheme();
   return (
     <TouchableOpacity
       onPress={onPress}
+      onLongPress={onLongPress}
       disabled={!onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected }}

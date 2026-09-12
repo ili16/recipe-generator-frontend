@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealPlanSuggestion, ChatStreamEvent, ChatAttachment } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealPlanSuggestion, ChatStreamEvent, ChatAttachment, Collection } from '../types';
 import authService from './authService';
 import { getLocales } from 'expo-localization';
 
@@ -242,9 +242,41 @@ class ApiService {
     return response.data;
   }
 
-  // Delete recipe
+  // Delete recipe (soft — it lands in the trash for 30 days, BACKLOG 8.2)
   async deleteRecipe(recipeId: number): Promise<void> {
     await this.client.delete(`${API_ENDPOINTS.DELETE_RECIPE}/${recipeId}`);
+  }
+
+  async getTrash(): Promise<Recipe[]> {
+    const response = await this.client.get<Recipe[]>(`${API_ENDPOINTS.GET_RECIPE}/trash`);
+    return response.data;
+  }
+
+  async restoreRecipe(recipeId: number): Promise<void> {
+    await this.client.post(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/restore`);
+  }
+
+  /* ── Collections (BACKLOG 8.1) ───────────────────────────────────────────── */
+
+  async getCollections(): Promise<Collection[]> {
+    const response = await this.client.get<Collection[]>(API_ENDPOINTS.COLLECTIONS);
+    return response.data;
+  }
+
+  // Creating a name that already exists returns that collection rather than a duplicate.
+  async createCollection(name: string): Promise<Collection> {
+    const response = await this.client.post<Collection>(API_ENDPOINTS.COLLECTIONS, { name });
+    return response.data;
+  }
+
+  async deleteCollection(collectionId: number): Promise<void> {
+    await this.client.delete(`${API_ENDPOINTS.COLLECTIONS}/${collectionId}`);
+  }
+
+  async setRecipeCollection(collectionId: number, recipeId: number, member: boolean): Promise<void> {
+    const path = `${API_ENDPOINTS.COLLECTIONS}/${collectionId}/recipes/${recipeId}`;
+    if (member) await this.client.put(path);
+    else await this.client.delete(path);
   }
 
   async getRecipeById(recipeId: number): Promise<Recipe> {

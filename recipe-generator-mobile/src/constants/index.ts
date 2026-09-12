@@ -30,6 +30,7 @@ export const API_ENDPOINTS = {
   MEAL_PLAN: 'meal-plan',
   MEAL_PLAN_ITEMS: 'meal-plan/items',
   MEAL_PLAN_VARIANTS: 'meal-plan/variants',
+  COLLECTIONS: 'collections',
 } as const;
 
 // Storage Keys

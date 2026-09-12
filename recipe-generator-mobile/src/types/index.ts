@@ -14,6 +14,17 @@ export interface Recipe {
   source_type?: 'text' | 'url' | 'image' | 'voice' | 'manual' | 'import';
   source_url?: string | null;
   created_at?: string;
+  // Set only on the trash listing (GET /recipes/trash); absent everywhere else.
+  deleted_at?: string;
+}
+
+// A user-named grouping of their own recipes (BACKLOG 8.1). `recipe_ids` is the whole
+// membership, so the library filters itself client-side — there is no per-collection
+// list endpoint.
+export interface Collection {
+  id: number;
+  name: string;
+  recipe_ids: number[];
 }
 
 export interface RecipeGeneratePayload {
