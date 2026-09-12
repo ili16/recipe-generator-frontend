@@ -57,6 +57,15 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true })
   if (totalMinutes > 0) meta.push({ icon: 'time-outline', text: `${totalMinutes} min` });
   if (structured!.difficulty) meta.push({ icon: 'speedometer-outline', text: structured!.difficulty });
 
+  // Per-serving macros, each dropped when the model couldn't estimate it. Nothing at
+  // all renders when all four are null — a blank beats a confident 0 (BACKLOG 6.6).
+  const macros = ([
+    ['kcal', structured!.calories],
+    ['g protein', structured!.protein_g],
+    ['g carbs', structured!.carbs_g],
+    ['g fat', structured!.fat_g],
+  ] as const).filter(([, v]) => v != null).map(([unit, v]) => `${v}${unit === 'kcal' ? ' ' : ''}${unit}`);
+
   // Group ingredients by their optional section label, preserving first-seen order;
   // recipes with no sections fall into a single unlabeled group.
   const sections = new Map<string, Ingredient[]>();
@@ -83,6 +92,17 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true })
 
       {structured!.summary != null && structured!.summary !== '' && (
         <Text style={styles.summary}>{structured!.summary}</Text>
+      )}
+
+      {macros.length > 0 && (
+        <View style={styles.macroBlock}>
+          <View style={styles.metaRow}>
+            {macros.map(m => (
+              <Badge key={m} tone="neutral" label={m} />
+            ))}
+          </View>
+          <Text style={styles.macroNote}>Per serving · estimated</Text>
+        </View>
       )}
 
       {structured!.ingredients.length > 0 && (
@@ -142,6 +162,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
 
   summary: { ...type.body, fontSize: 14, color: t.subtext, lineHeight: 20, marginBottom: 12, fontStyle: 'italic' },
+
+  macroBlock: { marginBottom: 12 },
+  macroNote: { ...type.caption, color: t.muted, marginTop: -4 },
 
   section: { marginBottom: 14 },
   sectionLabel: { ...type.label, fontSize: 12, lineHeight: 16, color: t.muted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },

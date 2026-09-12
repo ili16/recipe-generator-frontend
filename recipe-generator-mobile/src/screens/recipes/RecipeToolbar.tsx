@@ -6,6 +6,7 @@ import { TAGS_BY_GROUP, TAG_GROUP_LABELS, TagGroup } from '../../constants/tags'
 import { makeSharedStyles } from './styles';
 import { Chip } from '../../components/ui';
 import { Collection } from '../../types';
+import { QuickFilter, QUICK_FILTER_LABELS } from './quickFilters';
 
 export type SortMode = 'recent' | 'name';
 
@@ -22,10 +23,12 @@ interface Props {
   activeCollectionId: number | null;
   onSelectCollection: (id: number | null) => void;
   onDeleteCollection: (collection: Collection) => void;
+  quickFilters: Set<QuickFilter>;
+  onToggleQuickFilter: (filter: QuickFilter) => void;
 }
 
 const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onToggleTag, sortMode, onToggleSort, trashMode, onToggleTrash,
-  collections, activeCollectionId, onSelectCollection, onDeleteCollection }) => {
+  collections, activeCollectionId, onSelectCollection, onDeleteCollection, quickFilters, onToggleQuickFilter }) => {
   const { theme } = useTheme();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -66,6 +69,21 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* The three cheap filters (BACKLOG 6.5): they read fields the list already carries,
+          and unlike collections they combine. */}
+      {!trashMode && (
+        <View style={[s.tagRow, styles.quickRow]}>
+          {(Object.keys(QUICK_FILTER_LABELS) as QuickFilter[]).map(f => (
+            <Chip
+              key={f}
+              label={QUICK_FILTER_LABELS[f]}
+              selected={quickFilters.has(f)}
+              onPress={() => onToggleQuickFilter(f)}
+            />
+          ))}
+        </View>
+      )}
 
       {/* Collections are a one-at-a-time filter, unlike tags: "which of these are mine
           for Sunday" is a single answer. Long-press a chip to delete the collection. */}
@@ -158,6 +176,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     backgroundColor: t.surface,
   },
   collectionRow: {
+    marginTop: 10,
+  },
+  quickRow: {
     marginTop: 10,
   },
   trashToggleWide: {

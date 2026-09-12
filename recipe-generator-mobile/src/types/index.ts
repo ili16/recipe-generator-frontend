@@ -13,6 +13,10 @@ export interface Recipe {
   // 'url' only; both are absent on recipes saved before BACKLOG 3.7.
   source_type?: 'text' | 'url' | 'image' | 'voice' | 'manual' | 'import';
   source_url?: string | null;
+  // Denormalised onto the list payload (GET /get-recipes) so the library can filter on
+  // cooking time and batch size without loading every document. Undefined = unknown.
+  servings?: number | null;
+  total_minutes?: number | null;
   created_at?: string;
   // Set only on the trash listing (GET /recipes/trash); absent everywhere else.
   deleted_at?: string;
@@ -43,6 +47,12 @@ export interface RecipeDocument {
   prep_minutes?: number | null;
   cook_minutes?: number | null;
   difficulty?: string | null;
+  // Per-serving macros, all nullable: they are model estimates, so null means "not
+  // estimated" and must render as nothing at all, never 0 (BACKLOG 6.6).
+  calories?: number | null;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
   ingredients: Array<{
     section?: string | null;
     item: string;

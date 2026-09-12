@@ -16,6 +16,8 @@ interface Props {
   recipe: Recipe;
   expanded: boolean;
   variantOfName?: string;
+  /** How many saved recipes name this one as their parent (BACKLOG 6.5). */
+  variantCount?: number;
   onToggle: () => void;
   onCook: () => void;
   onDelete: () => void;
@@ -36,7 +38,7 @@ type Panel = 'none' | 'edit' | 'refine' | 'variant' | 'history' | 'collections';
 // One recipe in the library list: collapsed header, and when expanded the recipe plus
 // whichever of the four inline flows the user opened.
 const RecipeCard: React.FC<Props> = ({
-  recipe, expanded, variantOfName, onToggle, onCook, onDelete, onVote,
+  recipe, expanded, variantOfName, variantCount = 0, onToggle, onCook, onDelete, onVote,
   ensureStructured, onSaveEdit, onRefine, onGenerateVariant, onAcceptVariant, onLoadHistory,
   collections, onToggleCollection, onCreateCollection,
 }) => {
@@ -129,8 +131,14 @@ const RecipeCard: React.FC<Props> = ({
           {originLabel(recipe) && (
             <Text style={styles.variantOfCaption}>{originLabel(recipe)}</Text>
           )}
-          {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0) && (
+          {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0 || variantCount > 0) && (
             <View style={styles.tagBadgeRow}>
+              {variantCount > 0 && (
+                <Badge
+                  label={`${variantCount} variant${variantCount === 1 ? '' : 's'}`}
+                  icon={<Ionicons name="copy-outline" size={11} color={theme.accent} />}
+                />
+              )}
               {memberOf.map(c => (
                 <Badge
                   key={`c${c.id}`}

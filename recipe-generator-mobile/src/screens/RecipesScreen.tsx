@@ -9,6 +9,7 @@ import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useRecipeLibrary } from '../hooks/useRecipeLibrary';
 import RecipeToolbar, { SortMode } from './recipes/RecipeToolbar';
 import RecipeCard from './recipes/RecipeCard';
+import { QuickFilter, matchesQuickFilters } from './recipes/quickFilters';
 import { Button, Card, Text as UIText } from '../components/ui';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Recipes'>;
@@ -21,6 +22,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [trashMode, setTrashMode] = useState(false);
   const [activeCollectionId, setActiveCollectionId] = useState<number | null>(null);
+  const [quickFilters, setQuickFilters] = useState<Set<QuickFilter>>(new Set());
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
@@ -40,10 +42,30 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     });
   };
 
+  const toggleQuickFilter = (f: QuickFilter) => {
+    setQuickFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(f)) next.delete(f); else next.add(f);
+      return next;
+    });
+  };
+
   const recipeNameById = useMemo(() => {
     const map = new Map<number, string>();
     lib.recipes.forEach(r => map.set(r.id, r.recipename));
     return map;
+  }, [lib.recipes]);
+
+  // How many saved variants each parent recipe has — the list already carries every
+  // variant's parent link, so this is a tally, not a query (BACKLOG 6.5).
+  const variantCountByParent = useMemo(() => {
+    const counts = new Map<number, number>();
+    lib.recipes.forEach(r => {
+      if (r.variant_of_recipe_id != null) {
+        counts.set(r.variant_of_recipe_id, (counts.get(r.variant_of_recipe_id) ?? 0) + 1);
+      }
+    });
+    return counts;
   }, [lib.recipes]);
 
   const visibleRecipes = useMemo(() => {
@@ -57,13 +79,14 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
         r.recipe.toLowerCase().includes(q);
       const matchesTags = selectedTags.size === 0 ||
         Array.from(selectedTags).every(t => (r.tags ?? []).includes(t));
-      return matchesSearch && matchesTags && (inCollection === null || inCollection.has(r.id));
+      return matchesSearch && matchesTags && matchesQuickFilters(r, quickFilters) &&
+        (inCollection === null || inCollection.has(r.id));
     });
     if (sortMode === 'name') {
       list = [...list].sort((a, b) => a.recipename.localeCompare(b.recipename));
     }
     return list;
-  }, [lib.recipes, lib.collections, search, selectedTags, sortMode, activeCollectionId]);
+  }, [lib.recipes, lib.collections, search, selectedTags, sortMode, activeCollectionId, quickFilters]);
 
   if (!lib.isAuthenticated) {
     return (
@@ -119,6 +142,8 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
         onDeleteCollection={async c => {
           if (await lib.removeCollection(c) && activeCollectionId === c.id) setActiveCollectionId(null);
         }}
+        quickFilters={quickFilters}
+        onToggleQuickFilter={toggleQuickFilter}
         trashMode={trashMode}
         onToggleTrash={() => {
           setTrashMode(v => !v);
@@ -172,6 +197,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
               recipe={recipe}
               expanded={expandedId === recipe.id}
               variantOfName={recipe.variant_of_recipe_id != null ? recipeNameById.get(recipe.variant_of_recipe_id) : undefined}
+              variantCount={variantCountByParent.get(recipe.id) ?? 0}
               onToggle={() => setExpandedId(prev => (prev === recipe.id ? null : recipe.id))}
               onCook={() => navigation.navigate('CookingMode', { recipe })}
               onDelete={async () => {
