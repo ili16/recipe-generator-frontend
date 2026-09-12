@@ -12,6 +12,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import authService, { AuthMode } from '../services/authService';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { type } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
@@ -92,14 +93,14 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     padding: 20,
   },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    ...type.display, fontSize: 32,
+    lineHeight: 40,
     color: t.text,
     marginBottom: 10,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 16,
+    ...type.body,
     color: t.muted,
     marginBottom: 40,
     textAlign: 'center',
@@ -120,17 +121,15 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   authButtonText: {
     color: t.text,
-    fontSize: 16,
-    fontWeight: '600',
+    ...type.label, fontSize: 16,
   },
   primaryButton: {
     backgroundColor: t.accent,
     borderColor: t.accent,
   },
   primaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+    color: t.onAccent,
+    ...type.label, fontSize: 16,
   },
   skipButton: {
     marginTop: 20,
@@ -138,8 +137,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   skipButtonText: {
     color: t.subtext,
-    fontSize: 16,
-    fontWeight: '500',
+    ...type.body, fontSize: 16,
   },
 });
 

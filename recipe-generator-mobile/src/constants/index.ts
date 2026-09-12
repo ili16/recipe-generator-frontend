@@ -18,28 +18,18 @@ export const KEYCLOAK_CONFIG = {
 
 // API Endpoints (relative to API_BASE_URL)
 export const API_ENDPOINTS = {
-  GENERATE_RECIPE: 'generate',
-  GENERATE_RECIPE_STREAM: 'generate/stream',
+  CHAT: 'chat',
   TRANSCRIBE_AUDIO: 'transcribe',
   UPDATE_RECIPE: 'update-recipe',
   GET_RECIPES: 'get-recipes',
   DELETE_RECIPE: 'delete-recipe',
   SAVE_RECIPE: 'add-recipe',
   USER_INFO: 'user-info',
-  SUGGEST: 'suggest',
-  SUGGEST_PREFS: 'suggest-prefs',
-  COOKING_CHAT: 'cooking-chat',
   GET_RECIPE: 'recipes',
-  REFINE_RECIPE: 'refine-recipe',
   PREFERENCES: 'preferences',
-  DECLINE_GENERATION: 'decline-generation',
   MEAL_PLAN: 'meal-plan',
   MEAL_PLAN_ITEMS: 'meal-plan/items',
-  MEAL_PLAN_SUGGEST: 'meal-plan/suggest',
-  MEAL_PLAN_CHAT: 'meal-plan/chat',
-  MEAL_PLAN_CHAT_STREAM: 'meal-plan/chat/stream',
   MEAL_PLAN_VARIANTS: 'meal-plan/variants',
-  MEAL_PLAN_WEEK_PREFERENCES: 'meal-plan/week-preferences',
 } as const;
 
 // Storage Keys
@@ -49,8 +39,15 @@ export const STORAGE_KEYS = {
   USER_REFRESH_TOKEN: 'user_refresh_token',
   USER_TOKEN_EXPIRES_AT: 'user_token_expires_at',
   USER_PROFILE: 'user_profile',
+  THEME_MODE: 'theme_mode',
 } as const;
+
+// Keyed by user id so a shared device — or a logout/login within the same session —
+// never shows one account's cached meal plan to another before the background refetch lands.
+export const mealPlanCacheKeys = (userId: string) => ({
+  items: `mealplan_cache_items_v1_${userId}`,
+  recipes: `mealplan_cache_recipes_v1_${userId}`,
+});
 
 // App Constants
 export const MAX_RECIPE_NAME_LENGTH = 25;
-export const SUGGEST_DEBOUNCE_MS = 1200;

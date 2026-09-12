@@ -1,39 +1,36 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { type } from '../theme';
 import { NAV_ITEMS, PROFILE_NAV_ITEM, NavItem } from '../navigation/navItems';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
+/**
+ * The wide-web nav rail. BACKLOG 5.7 deleted its `drawer` variant — narrow uses bottom tabs now —
+ * and with it the route-less "Soon" pill, since every nav entry has a route.
+ */
 interface Props {
   activeRoute: string;
   onNavigate: (route: keyof RootStackParamList) => void;
-  variant: 'rail' | 'drawer';
-  onClose?: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }
 
-const Sidebar: React.FC<Props> = ({ activeRoute, onNavigate, variant, onClose, collapsed = false, onToggleCollapse }) => {
+const Sidebar: React.FC<Props> = ({ activeRoute, onNavigate, collapsed = false, onToggleCollapse }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const renderItem = (item: NavItem) => {
     const active = item.route === activeRoute;
-    if (!item.route) {
-      return (
-        <View key={item.key} style={[styles.item, collapsed && styles.itemCollapsed]}>
-          <Ionicons name={item.icon} size={19} color={theme.muted} style={[!collapsed && styles.itemIcon]} />
-          {!collapsed && <Text style={styles.itemLabelDisabled} numberOfLines={1}>{item.label}</Text>}
-          {!collapsed && <View style={styles.soonPill}><Text style={styles.soonPillText}>Soon</Text></View>}
-        </View>
-      );
-    }
     return (
       <TouchableOpacity
         key={item.key}
         style={[styles.item, collapsed && styles.itemCollapsed, active && styles.itemActive]}
-        onPress={() => onNavigate(item.route!)}
+        onPress={() => onNavigate(item.route)}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: active }}
+        accessibilityLabel={item.label}
       >
         <Ionicons name={item.icon} size={19} color={active ? theme.accent : theme.subtext} style={[!collapsed && styles.itemIcon]} />
         {!collapsed && <Text style={[styles.itemLabel, active && styles.itemLabelActive]} numberOfLines={1}>{item.label}</Text>}
@@ -42,19 +39,12 @@ const Sidebar: React.FC<Props> = ({ activeRoute, onNavigate, variant, onClose, c
   };
 
   return (
-    <View style={[variant === 'rail' ? styles.rail : styles.drawer, collapsed && styles.railCollapsed]}>
+    <View style={[styles.rail, collapsed && styles.railCollapsed]}>
       <View style={[styles.topRow, collapsed && styles.topRowCollapsed]}>
         {!collapsed && <Text style={styles.logo}>RecipeGenerator</Text>}
-        {variant === 'rail' && (
-          <TouchableOpacity onPress={onToggleCollapse} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name={collapsed ? 'chevron-forward' : 'chevron-back'} size={18} color={theme.subtext} />
-          </TouchableOpacity>
-        )}
-        {variant === 'drawer' && (
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close" size={22} color={theme.subtext} />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity onPress={onToggleCollapse} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name={collapsed ? 'chevron-forward' : 'chevron-back'} size={18} color={theme.subtext} />
+        </TouchableOpacity>
       </View>
       <View style={styles.list}>
         {NAV_ITEMS.map(renderItem)}
@@ -71,22 +61,13 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     width: 240,
     backgroundColor: t.surface,
     borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: t.hairline,
+    borderRightColor: t.border,
     paddingTop: 24,
     paddingHorizontal: 12,
   },
   railCollapsed: {
     width: 64,
     paddingHorizontal: 8,
-  },
-  drawer: {
-    width: 260,
-    height: '100%',
-    backgroundColor: t.surface,
-    paddingTop: Platform.OS === 'ios' ? 56 : 24,
-    paddingHorizontal: 12,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: t.hairline,
   },
   topRow: {
     flexDirection: 'row',
@@ -100,8 +81,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     paddingHorizontal: 0,
   },
   logo: {
-    fontSize: 16,
-    fontWeight: '700',
+    ...type.title, fontSize: 16,
+    lineHeight: 22,
     color: t.text,
   },
   list: {
@@ -111,7 +92,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginTop: 'auto',
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: t.hairline,
+    borderTopColor: t.border,
   },
   item: {
     flexDirection: 'row',
@@ -131,33 +112,13 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginRight: 10,
   },
   itemLabel: {
-    fontSize: 14,
-    fontWeight: '500',
+    ...type.label,
     color: t.subtext,
     flex: 1,
   },
+  // The family already carries the weight (5.6); active only changes colour.
   itemLabelActive: {
     color: t.accent,
-    fontWeight: '700',
-  },
-  itemLabelDisabled: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: t.muted,
-    flex: 1,
-  },
-  soonPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: t.border,
-  },
-  soonPillText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: t.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
   },
 });
 

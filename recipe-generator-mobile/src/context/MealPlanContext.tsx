@@ -1,11 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../services/apiService';
+import authService from '../services/authService';
+import { mealPlanCacheKeys } from '../constants';
 import { MealPlanItem, Recipe } from '../types';
 import { toISODate, addDays, parseISODate } from '../utils/mealPlanDates';
-
-const ITEMS_CACHE_KEY = 'mealplan_cache_items_v1';
-const RECIPES_CACHE_KEY = 'mealplan_cache_recipes_v1';
 
 interface MealPlanContextValue {
   itemsByDate: Record<string, MealPlanItem>;
@@ -25,13 +24,23 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [itemsByDate, setItemsByDate] = useState<Record<string, MealPlanItem>>({});
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const hydrated = useRef(false);
+  // Resolved once per mount before anything touches AsyncStorage, so a stale cache read
+  // under the wrong key (and thus another account's data) can never happen.
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     (async () => {
+      const userId = await authService.getUserId();
+      userIdRef.current = userId;
+      if (!userId) {
+        hydrated.current = true;
+        return;
+      }
+      const keys = mealPlanCacheKeys(userId);
       try {
         const [itemsRaw, recipesRaw] = await Promise.all([
-          AsyncStorage.getItem(ITEMS_CACHE_KEY),
-          AsyncStorage.getItem(RECIPES_CACHE_KEY),
+          AsyncStorage.getItem(keys.items),
+          AsyncStorage.getItem(keys.recipes),
         ]);
         if (itemsRaw) setItemsByDate(JSON.parse(itemsRaw));
         if (recipesRaw) setRecipes(JSON.parse(recipesRaw));
@@ -42,13 +51,14 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       }
       apiService.getRecipes().then(list => {
         setRecipes(list);
-        AsyncStorage.setItem(RECIPES_CACHE_KEY, JSON.stringify(list)).catch(() => {});
+        AsyncStorage.setItem(keys.recipes, JSON.stringify(list)).catch(() => {});
       }).catch(error => console.error('Error refreshing recipes:', error));
     })();
   }, []);
 
   const persistItems = useCallback((next: Record<string, MealPlanItem>) => {
-    AsyncStorage.setItem(ITEMS_CACHE_KEY, JSON.stringify(next)).catch(() => {});
+    if (!userIdRef.current) return;
+    AsyncStorage.setItem(mealPlanCacheKeys(userIdRef.current).items, JSON.stringify(next)).catch(() => {});
   }, []);
 
   const ensureRange = useCallback((startISO: string, endISO: string) => {

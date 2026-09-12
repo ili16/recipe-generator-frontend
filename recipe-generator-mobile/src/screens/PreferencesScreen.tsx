@@ -12,6 +12,7 @@ import { UserPreferences } from '../types';
 import PreferencesPanel from '../components/PreferencesPanel';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { type } from '../theme';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useAlert } from '../context/AlertContext';
 
@@ -21,7 +22,6 @@ const EMPTY_PREFS: UserPreferences = {
   skill_level: null,
   dietary_prefs: [],
   disliked_ingredients: [],
-  cooking_cadence: null,
   meal_plan_no_food_days: [],
   meal_plan_no_cook_days: [],
   meal_plan_batch_days: 1,
@@ -43,7 +43,7 @@ const PreferencesScreen: React.FC<Props> = () => {
         setPrefs(await apiService.getPreferences());
       } catch (error) {
         console.error('Error loading preferences:', error);
-        showAlert('Error', 'Failed to load preferences');
+        showAlert('Error', 'Failed to load preferences', 'error');
       } finally {
         setLoading(false);
       }
@@ -54,10 +54,10 @@ const PreferencesScreen: React.FC<Props> = () => {
     setSaving(true);
     try {
       setPrefs(await apiService.updatePreferences(prefs));
-      showAlert('Saved', 'Your preferences were updated');
+      showAlert('Saved', 'Your preferences were updated', 'success');
     } catch (error) {
       console.error('Error saving preferences:', error);
-      showAlert('Error', 'Failed to save preferences');
+      showAlert('Error', 'Failed to save preferences', 'error');
     } finally {
       setSaving(false);
     }
@@ -83,7 +83,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   content: { padding: 20, maxWidth: 560, width: '100%', alignSelf: 'center' },
   saveButton: { backgroundColor: t.accent, padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 28, marginBottom: 20 },
   saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  saveButtonText: { color: t.onAccent, ...type.label, fontSize: 15 },
 });
 
 export default PreferencesScreen;

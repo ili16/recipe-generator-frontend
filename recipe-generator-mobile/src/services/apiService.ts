@@ -1,9 +1,27 @@
 import axios, { AxiosInstance } from 'axios';
-import * as Localization from 'expo-localization';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, RefineResult, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeekPreferences, MealPlanWeek, MealPlanItem, MealPlanSuggestion, MealPlanChatTurn } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealPlanSuggestion, ChatStreamEvent, ChatAttachment } from '../types';
 import authService from './authService';
+import { getLocales } from 'expo-localization';
+
+// The device locale, sent on every /chat turn. It is the only language signal the backend
+// has left since POST /generate (and its `language` form field) was deleted — the agent
+// uses it when the user's own message is too short to detect a language from, so that
+// "cacio e pepe" comes back in the user's language rather than Italian (BACKLOG 3.9).
+// Read once: a locale change restarts the app.
+const deviceLanguage = getLocales()[0]?.languageCode ?? '';
+
+// The one error type every apiService method rejects with. `status` is the HTTP status
+// (undefined = the request never reached the server), so a caller can tell "the server
+// said no" from "the server is down" — which the old swallow-and-return-empty methods
+// made impossible. No method swallows its own errors; swallowing is the call site's choice.
+export class ApiError extends Error {
+  constructor(message: string, readonly status?: number, readonly data?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 class ApiService {
   private client: AxiosInstance;
@@ -46,132 +64,140 @@ class ApiService {
           }
         }
 
-        return Promise.reject(error);
+        return Promise.reject(
+          new ApiError(error?.message ?? 'request failed', status, error?.response?.data)
+        );
       }
     );
   }
 
-  private async generateRecipe(formData: FormData): Promise<RecipeResponse> {
-    const language = Localization.getLocales()[0]?.languageCode;
-    if (language) formData.append('language', language);
-    const response = await this.client.post<RecipeResponse>(
-      API_ENDPOINTS.GENERATE_RECIPE,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
-    );
-    return response.data;
-  }
+  // The one SSE reader. Mirrors the axios interceptors the raw-fetch streams would
+  // otherwise miss: bearer token in, one 401 refresh-and-replay. Always cancels the
+  // reader so an abandoned stream stops server-side too. `signal` aborts the request.
+  private async streamSSE(
+    path: string,
+    init: (token: string | null) => RequestInit,
+    onEvent: (type: string, payload: unknown) => void,
+    defaultEvent: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const send = (token: string | null) =>
+      fetch(`${API_BASE_URL}/${path}`, { ...init(token), signal });
 
-  // Generate recipe by description (anonymous or authenticated)
-  async generateByDescription(description: string): Promise<RecipeResponse> {
-    return this.generateRecipe(this.buildDescriptionFormData(description));
-  }
-
-  async generateByDescriptionStream(description: string, onDelta: (raw: string) => void): Promise<RecipeResponse> {
-    return this.generateRecipeStream(this.buildDescriptionFormData(description), onDelta);
-  }
-
-  private buildDescriptionFormData(description: string): FormData {
-    const formData = new FormData();
-    formData.append('description', description);
-    return formData;
-  }
-
-  // Generate recipe by link
-  async generateByLink(url: string): Promise<RecipeResponse> {
-    return this.generateRecipe(this.buildLinkFormData(url));
-  }
-
-  async generateByLinkStream(url: string, onDelta: (raw: string) => void): Promise<RecipeResponse> {
-    return this.generateRecipeStream(this.buildLinkFormData(url), onDelta);
-  }
-
-  private buildLinkFormData(url: string): FormData {
-    const formData = new FormData();
-    formData.append('url', url);
-    return formData;
-  }
-
-  // Generate recipe by image
-  async generateByImage(imageUri: string): Promise<RecipeResponse> {
-    return this.generateRecipe(await this.buildImageFormData(imageUri));
-  }
-
-  async generateByImageStream(imageUri: string, onDelta: (raw: string) => void): Promise<RecipeResponse> {
-    return this.generateRecipeStream(await this.buildImageFormData(imageUri), onDelta);
-  }
-
-  private async buildImageFormData(imageUri: string): Promise<FormData> {
-    const formData = new FormData();
-
-    if (Platform.OS === 'web') {
-      let blob: Blob;
-      if (imageUri.startsWith('data:')) {
-        const [header, b64] = imageUri.split(',');
-        const mime = header.replace('data:', '').replace(';base64', '');
-        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-        blob = new Blob([bytes], { type: mime });
-      } else {
-        // blob: URL from the image picker on web
-        const res = await fetch(imageUri);
-        blob = await res.blob();
-      }
-      formData.append('image', blob, 'image.jpg');
-    } else {
-      const filename = imageUri.split('/').pop() || 'image.jpg';
-      const ext = filename.split('.').pop()?.toLowerCase();
-      const type = ext ? `image/${ext === 'jpg' ? 'jpeg' : ext}` : 'image/jpeg';
-      formData.append('image', { uri: imageUri, name: filename, type } as any);
+    let response = await send(await authService.getAccessToken());
+    if (response.status === 401) {
+      const refreshed = await authService.refreshAccessToken();
+      if (refreshed) response = await send(refreshed);
     }
-
-    return formData;
-  }
-
-  // Stream a recipe generation via SSE — web only (native fetch can't consume a
-  // streaming body, same constraint as streamMealPlanChatReply). onDelta fires once per
-  // raw JSON text fragment as the structured recipe is generated; resolves with the same
-  // shape generateRecipe() returns once the stream's "done" event arrives.
-  async generateRecipeStream(formData: FormData, onDelta: (raw: string) => void): Promise<RecipeResponse> {
-    const language = Localization.getLocales()[0]?.languageCode;
-    if (language) formData.append('language', language);
-    const token = await authService.getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/${API_ENDPOINTS.GENERATE_RECIPE_STREAM}`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      body: formData,
-    });
     if (!response.ok || !response.body) {
-      throw new Error(`stream failed: ${response.status}`);
+      throw new ApiError(`stream failed: ${response.status}`, response.status);
     }
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let result: RecipeResponse | null = null;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split('\n\n');
-      buffer = events.pop() ?? '';
-      for (const raw of events) {
-        if (!raw.trim()) continue;
-        const lines = raw.split('\n');
-        const eventLine = lines.find(l => l.startsWith('event:'));
-        const dataLine = lines.find(l => l.startsWith('data:'));
-        const eventType = eventLine ? eventLine.slice(6).trim() : 'delta';
-        if (!dataLine) continue;
-        const payload = JSON.parse(dataLine.slice(5).trim());
-        if (eventType === 'error') throw new Error(typeof payload === 'string' ? payload : 'stream error');
-        if (eventType === 'delta') onDelta(payload as string);
-        if (eventType === 'done') result = payload as RecipeResponse;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() ?? '';
+        for (const raw of events) {
+          if (!raw.trim()) continue;
+          let type = defaultEvent;
+          const data: string[] = [];
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event:')) type = line.slice(6).trim();
+            else if (line.startsWith('data:')) data.push(line.slice(5).trim());
+          }
+          if (data.length === 0) continue;
+          let payload: unknown;
+          try {
+            payload = JSON.parse(data.join('\n'));
+          } catch {
+            continue; // a malformed frame must not kill the stream
+          }
+          // The agent loop reports failures as {code}; older streams send a bare string.
+          if (type === 'error') {
+            const code = typeof payload === 'string' ? payload : (payload as { code?: string })?.code;
+            throw new ApiError(code || 'stream error');
+          }
+          onEvent(type, payload);
+        }
       }
+    } finally {
+      reader.cancel().catch(() => { /* already closed */ });
     }
-    if (!result) throw new Error('stream ended without a result');
-    return result;
+  }
+
+  // The agent loop (POST /chat): one user turn in, a stream of prose tokens, tool events
+  // and artifact cards out. The thread lives server-side — the only state the client
+  // keeps is the conversation id, which this resolves from the closing `done` event.
+  // Native has no readable body, so it asks for `Accept: application/json` and gets the
+  // same events in one buffered array once the turn ends (BACKLOG 3.8).
+  async streamChat(
+    message: string,
+    conversationId: string | null,
+    onEvent: (event: ChatStreamEvent) => void,
+    signal?: AbortSignal,
+    attachments?: ChatAttachment[],
+  ): Promise<string | null> {
+    let conversation = conversationId;
+    const body = { conversation_id: conversationId ?? '', message, attachments, language: deviceLanguage };
+
+    if (Platform.OS !== 'web') {
+      const { data } = await this.client.post<{ events: { type: string; payload: unknown }[] }>(
+        API_ENDPOINTS.CHAT,
+        body,
+        { headers: { Accept: 'application/json' }, signal },
+      );
+      for (const { type, payload } of data.events ?? []) {
+        if (type === 'error') throw new ApiError((payload as { code?: string })?.code || 'stream error');
+        if (type === 'done') conversation = (payload as { conversation_id?: string }).conversation_id ?? conversation;
+        onEvent({ type, payload } as ChatStreamEvent);
+      }
+      return conversation;
+    }
+
+    await this.streamSSE(
+      API_ENDPOINTS.CHAT,
+      (token) => ({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      }),
+      (type, payload) => {
+        if (type === 'done') conversation = (payload as { conversation_id?: string }).conversation_id ?? conversation;
+        onEvent({ type, payload } as ChatStreamEvent);
+      },
+      'token',
+      signal,
+    );
+    return conversation;
+  }
+
+  // One /chat turn collapsed to its result, for the surfaces that want an answer rather
+  // than a conversation to render: the assistant's prose and the last recipe document it
+  // produced. Pass the returned `conversationId` back in to make the next call a follow-up
+  // in the same thread — which is the whole reason cooking mode stopped posting to the old
+  // stateless /refine-recipe and /cooking-chat (BACKLOG 3.13).
+  async chatTurn(
+    message: string,
+    conversationId: string | null = null,
+  ): Promise<{ conversationId: string | null; text: string; document?: RecipeDocument }> {
+    let text = '';
+    let document: RecipeDocument | undefined;
+    const conversation = await this.streamChat(message, conversationId, (event) => {
+      if (event.type === 'token') text += event.payload.text;
+      else if (event.type === 'artifact' && event.payload.kind === 'recipe') {
+        document = event.payload.data.document;
+      }
+    });
+    return { conversationId: conversation, text: text.trim(), document };
   }
 
   // Transcribe audio to text using OpenAI Whisper on the backend
@@ -201,29 +227,6 @@ class ApiService {
     return response.data.text ?? '';
   }
 
-  async suggestInput(input: string): Promise<{ mode: 'append' | 'rewrite' | 'none'; text: string }> {
-    try {
-      const response = await this.client.post<{ mode: 'append' | 'rewrite' | 'none'; text: string }>(API_ENDPOINTS.SUGGEST, { input });
-      return { mode: response.data.mode ?? 'none', text: response.data.text ?? '' };
-    } catch (error: any) {
-      if (error?.response?.status === 422) throw error;
-      return { mode: 'none', text: '' };
-    }
-  }
-
-  async suggestPrefs(
-    input: string,
-    history?: Array<{ role: 'user' | 'assistant'; text: string }>
-  ): Promise<{ mode: 'prefs' | 'chat'; questions?: Array<{ id: string; label: string; type: string; options: string[] }>; reply?: string }> {
-    try {
-      const response = await this.client.post<{ mode: 'prefs' | 'chat'; questions?: Array<{ id: string; label: string; type: string; options: string[] }>; reply?: string }>(
-        API_ENDPOINTS.SUGGEST_PREFS,
-        { input, ...(history && history.length > 0 ? { history } : {}) }
-      );
-      return response.data;
-    } catch { return { mode: 'prefs', questions: [] }; }
-  }
-
   // Persist manual edits to a saved recipe (PATCH /update-recipe)
   async patchRecipe(payload: PatchRecipePayload): Promise<Recipe> {
     const response = await this.client.patch<Recipe>(
@@ -244,23 +247,6 @@ class ApiService {
     await this.client.delete(`${API_ENDPOINTS.DELETE_RECIPE}/${recipeId}`);
   }
 
-  async refineRecipe(
-    origin: GenerationOrigin,
-    initial: RecipeDocument,
-    history: EditTurn[],
-    changePrompt: string,
-    generationId?: string
-  ): Promise<RefineResult> {
-    const response = await this.client.post<RefineResult>(API_ENDPOINTS.REFINE_RECIPE, {
-      origin,
-      initial,
-      history,
-      change_prompt: changePrompt,
-      ...(generationId ? { generation_id: generationId } : {}),
-    });
-    return response.data;
-  }
-
   async getRecipeById(recipeId: number): Promise<Recipe> {
     const response = await this.client.get<Recipe>(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}`);
     return response.data;
@@ -271,25 +257,6 @@ class ApiService {
     return response.data;
   }
 
-  async cookingChat(
-    recipeName: string,
-    recipe: string,
-    question: string,
-    stepText?: string,
-  ): Promise<string> {
-    try {
-      const response = await this.client.post<{ answer: string }>(API_ENDPOINTS.COOKING_CHAT, {
-        recipe_name: recipeName,
-        recipe,
-        question,
-        step_text: stepText ?? '',
-      });
-      return response.data.answer ?? '';
-    } catch {
-      return '';
-    }
-  }
-
   // Save recipe (requires authentication)
   async saveRecipe(
     recipeName: string,
@@ -298,7 +265,6 @@ class ApiService {
     structured?: RecipeDocument,
     origin?: GenerationOrigin,
     history?: EditTurn[],
-    generationId?: string,
     variantOfRecipeId?: number
   ): Promise<Recipe> {
     const response = await this.client.post<Recipe>(API_ENDPOINTS.SAVE_RECIPE, {
@@ -308,18 +274,9 @@ class ApiService {
       ...(structured ? { structured } : {}),
       ...(origin ? { origin } : {}),
       ...(history ? { history } : {}),
-      ...(generationId ? { generation_id: generationId } : {}),
       ...(variantOfRecipeId ? { variant_of_recipe_id: variantOfRecipeId } : {}),
     });
     return response.data;
-  }
-
-  // Fire-and-forget analytics beacon: the review screen was closed without saving. Must
-  // never block the UI, so errors are swallowed.
-  async declineGeneration(generationId: string): Promise<void> {
-    try {
-      await this.client.post(API_ENDPOINTS.DECLINE_GENERATION, { generation_id: generationId });
-    } catch { /* best-effort beacon */ }
   }
 
   async getPreferences(): Promise<UserPreferences> {
@@ -329,26 +286,6 @@ class ApiService {
 
   async updatePreferences(p: Partial<UserPreferences>): Promise<UserPreferences> {
     const response = await this.client.patch<UserPreferences>(API_ENDPOINTS.PREFERENCES, p);
-    return response.data;
-  }
-
-  // Per-week override of the 3 scheduling fields for the week containing startsOn. A
-  // null field on the returned object means "inherit the global default".
-  async getWeekPreferences(startsOn: string): Promise<MealPlanWeekPreferences> {
-    const response = await this.client.get<MealPlanWeekPreferences>(API_ENDPOINTS.MEAL_PLAN_WEEK_PREFERENCES, {
-      params: { starts_on: startsOn },
-    });
-    return response.data;
-  }
-
-  // Full-replace, like updatePreferences — a null field reverts that setting to the
-  // global default for this week.
-  async updateWeekPreferences(startsOn: string, p: MealPlanWeekPreferences): Promise<MealPlanWeekPreferences> {
-    const response = await this.client.patch<MealPlanWeekPreferences>(
-      API_ENDPOINTS.MEAL_PLAN_WEEK_PREFERENCES,
-      p,
-      { params: { starts_on: startsOn } }
-    );
     return response.data;
   }
 
@@ -379,88 +316,8 @@ class ApiService {
     return response.data;
   }
 
-  // Move an item to a new day/time (Day view drag)
-  async patchMealPlanItem(itemId: number, plannedOn: string, startTime: string): Promise<MealPlanItem> {
-    const response = await this.client.patch<MealPlanItem>(`${API_ENDPOINTS.MEAL_PLAN_ITEMS}/${itemId}`, {
-      planned_on: plannedOn,
-      start_time: startTime,
-    });
-    return response.data;
-  }
-
   async deleteMealPlanItem(itemId: number): Promise<void> {
     await this.client.delete(`${API_ENDPOINTS.MEAL_PLAN_ITEMS}/${itemId}`);
-  }
-
-  // Propose a fresh plan for [startsOn, endsOn] from the caller's saved recipes
-  async suggestMealPlan(startsOn: string, endsOn: string): Promise<MealPlanSuggestion> {
-    const response = await this.client.post<MealPlanSuggestion>(API_ENDPOINTS.MEAL_PLAN_SUGGEST, {
-      starts_on: startsOn,
-      ends_on: endsOn,
-    });
-    return response.data;
-  }
-
-  // Stream a short conversational acknowledgment of message via SSE (web only — call
-  // mealPlanChat() separately/concurrently for the actual plan update). onChunk fires
-  // once per text delta as it arrives; resolves once the stream ends.
-  async streamMealPlanChatReply(
-    startsOn: string,
-    endsOn: string,
-    message: string,
-    onChunk: (text: string) => void
-  ): Promise<void> {
-    const token = await authService.getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/${API_ENDPOINTS.MEAL_PLAN_CHAT_STREAM}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ starts_on: startsOn, ends_on: endsOn, message }),
-    });
-    if (!response.ok || !response.body) {
-      throw new Error(`stream failed: ${response.status}`);
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split('\n\n');
-      buffer = events.pop() ?? '';
-      for (const raw of events) {
-        if (!raw.trim()) continue;
-        const lines = raw.split('\n');
-        const eventLine = lines.find(l => l.startsWith('event:'));
-        const dataLine = lines.find(l => l.startsWith('data:'));
-        const eventType = eventLine ? eventLine.slice(6).trim() : 'message';
-        if (!dataLine) continue;
-        const payload = JSON.parse(dataLine.slice(5).trim());
-        if (eventType === 'error') throw new Error(typeof payload === 'string' ? payload : 'stream error');
-        if (eventType === 'message') onChunk(payload as string);
-      }
-    }
-  }
-
-  // Refine an in-progress plan proposal — stateless, resend the full history each call
-  async mealPlanChat(
-    startsOn: string,
-    endsOn: string,
-    initial: MealPlanSuggestion,
-    history: MealPlanChatTurn[],
-    message: string
-  ): Promise<MealPlanSuggestion> {
-    const response = await this.client.post<MealPlanSuggestion>(API_ENDPOINTS.MEAL_PLAN_CHAT, {
-      starts_on: startsOn,
-      ends_on: endsOn,
-      initial,
-      history,
-      message,
-    });
-    return response.data;
   }
 
   // Propose a new, unsaved recipe variant of an existing saved recipe

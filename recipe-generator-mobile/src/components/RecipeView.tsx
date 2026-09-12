@@ -3,11 +3,14 @@ import { View, Text, StyleSheet } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme, useTheme } from '../context/ThemeContext';
+import { type } from '../theme';
+import { Badge } from './ui';
 import { RecipeDocument } from '../types';
+import { totalTimeMinutes } from '../utils/recipeTime';
 
 type Ingredient = RecipeDocument['ingredients'][number];
 
-const fmtIngredient = (ing: Ingredient): string => {
+export const fmtIngredient = (ing: Ingredient): string => {
   const qty = ing.quantity_text ?? (ing.quantity != null ? `${ing.quantity}${ing.unit ? ' ' + ing.unit : ''}` : null);
   return qty ? `${qty} ${ing.item}` : ing.item;
 };
@@ -15,16 +18,17 @@ const fmtIngredient = (ing: Ingredient): string => {
 // Themed style object for react-native-markdown-display — the real "render actual
 // markdown" fallback used wherever there's no structured doc to display instead.
 export const recipeMarkdownStyles = (t: Theme) => ({
-  body: { color: t.text, fontSize: 14, lineHeight: 21 },
-  heading1: { color: t.text, fontSize: 20, fontWeight: '700' as const, marginTop: 12, marginBottom: 6 },
-  heading2: { color: t.text, fontSize: 17, fontWeight: '700' as const, marginTop: 12, marginBottom: 6 },
-  heading3: { color: t.text, fontSize: 15, fontWeight: '700' as const, marginTop: 10, marginBottom: 4 },
-  paragraph: { color: t.subtext, fontSize: 14, lineHeight: 21, marginTop: 0, marginBottom: 8 },
+  body: { color: t.text, ...type.body, fontSize: 14, lineHeight: 21 },
+  heading1: { color: t.text, ...type.title, marginTop: 12, marginBottom: 6 },
+  heading2: { color: t.text, ...type.title, fontSize: 17, lineHeight: 24, marginTop: 12, marginBottom: 6 },
+  heading3: { color: t.text, ...type.title, fontSize: 15, lineHeight: 22, marginTop: 10, marginBottom: 4 },
+  paragraph: { color: t.subtext, ...type.body, fontSize: 14, lineHeight: 21, marginTop: 0, marginBottom: 8 },
+  // `strong` only overlays the body face, so it keeps a weight rather than a family.
   strong: { color: t.text, fontWeight: '700' as const },
   em: { color: t.subtext, fontStyle: 'italic' as const },
   bullet_list: { marginBottom: 8 },
   ordered_list: { marginBottom: 8 },
-  list_item: { color: t.subtext, fontSize: 14, marginBottom: 4 },
+  list_item: { color: t.subtext, ...type.body, fontSize: 14, marginBottom: 4 },
   bullet_list_icon: { color: t.accent },
   ordered_list_icon: { color: t.accent },
   hr: { backgroundColor: t.border, height: StyleSheet.hairlineWidth, marginVertical: 10 },
@@ -33,9 +37,12 @@ export const recipeMarkdownStyles = (t: Theme) => ({
 interface Props {
   structured?: RecipeDocument | null;
   markdown: string;
+  // Cooking mode's overview walks the steps one screen at a time, so it renders the
+  // ingredients here and leaves the steps to StepPhase.
+  showSteps?: boolean;
 }
 
-const RecipeView: React.FC<Props> = ({ structured, markdown }) => {
+const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
@@ -46,7 +53,7 @@ const RecipeView: React.FC<Props> = ({ structured, markdown }) => {
 
   const meta: Array<{ icon: React.ComponentProps<typeof Ionicons>['name']; text: string }> = [];
   if (structured!.servings != null) meta.push({ icon: 'people-outline', text: `${structured!.servings} servings` });
-  const totalMinutes = (structured!.prep_minutes ?? 0) + (structured!.cook_minutes ?? 0);
+  const totalMinutes = totalTimeMinutes(structured);
   if (totalMinutes > 0) meta.push({ icon: 'time-outline', text: `${totalMinutes} min` });
   if (structured!.difficulty) meta.push({ icon: 'speedometer-outline', text: structured!.difficulty });
 
@@ -64,10 +71,12 @@ const RecipeView: React.FC<Props> = ({ structured, markdown }) => {
       {meta.length > 0 && (
         <View style={styles.metaRow}>
           {meta.map((m, i) => (
-            <View key={i} style={styles.metaBadge}>
-              <Ionicons name={m.icon} size={13} color={theme.accent} style={{ marginRight: 4 }} />
-              <Text style={styles.metaBadgeText}>{m.text}</Text>
-            </View>
+            <Badge
+              key={i}
+              tone="neutral"
+              label={m.text}
+              icon={<Ionicons name={m.icon} size={13} color={theme.accent} />}
+            />
           ))}
         </View>
       )}
@@ -96,7 +105,7 @@ const RecipeView: React.FC<Props> = ({ structured, markdown }) => {
         </View>
       )}
 
-      {structured!.steps.length > 0 && (
+      {showSteps && structured!.steps.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Steps</Text>
           {structured!.steps.map((s, idx) => (
@@ -108,16 +117,16 @@ const RecipeView: React.FC<Props> = ({ structured, markdown }) => {
               {(s.timer_seconds != null || s.temperature_c != null) && (
                 <View style={styles.badgeRow}>
                   {s.timer_seconds != null && (
-                    <View style={styles.badge}>
-                      <Ionicons name="timer-outline" size={12} color={theme.accent} style={{ marginRight: 3 }} />
-                      <Text style={styles.badgeText}>{Math.round(s.timer_seconds / 60)} min</Text>
-                    </View>
+                    <Badge
+                      label={`${Math.round(s.timer_seconds / 60)} min`}
+                      icon={<Ionicons name="timer-outline" size={12} color={theme.accent} />}
+                    />
                   )}
                   {s.temperature_c != null && (
-                    <View style={styles.badge}>
-                      <Ionicons name="thermometer-outline" size={12} color={theme.accent} style={{ marginRight: 3 }} />
-                      <Text style={styles.badgeText}>{s.temperature_c}°C</Text>
-                    </View>
+                    <Badge
+                      label={`${s.temperature_c}°C`}
+                      icon={<Ionicons name="thermometer-outline" size={12} color={theme.accent} />}
+                    />
                   )}
                 </View>
               )}
@@ -131,28 +140,24 @@ const RecipeView: React.FC<Props> = ({ structured, markdown }) => {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-  metaBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: t.border },
-  metaBadgeText: { fontSize: 12, color: t.subtext, fontWeight: '600' },
 
-  summary: { fontSize: 14, color: t.subtext, lineHeight: 20, marginBottom: 12, fontStyle: 'italic' },
+  summary: { ...type.body, fontSize: 14, color: t.subtext, lineHeight: 20, marginBottom: 12, fontStyle: 'italic' },
 
   section: { marginBottom: 14 },
-  sectionLabel: { fontSize: 12, fontWeight: '700', color: t.muted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
-  subsectionLabel: { fontSize: 12, fontWeight: '600', color: t.accent, marginTop: 8, marginBottom: 4 },
+  sectionLabel: { ...type.label, fontSize: 12, lineHeight: 16, color: t.muted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+  subsectionLabel: { ...type.label, fontSize: 12, lineHeight: 16, color: t.accent, marginTop: 8, marginBottom: 4 },
 
   ingRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6, gap: 8 },
   ingBullet: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: t.accent, marginTop: 7 },
-  ingText: { flex: 1, fontSize: 14, color: t.text, lineHeight: 20 },
-  optLabel: { fontSize: 12, color: t.muted, fontStyle: 'italic' },
+  ingText: { flex: 1, ...type.body, fontSize: 14, color: t.text, lineHeight: 20 },
+  optLabel: { ...type.caption, color: t.muted, fontStyle: 'italic' },
 
-  stepCard: { backgroundColor: t.card, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: t.border },
+  stepCard: { backgroundColor: t.surfaceRaised, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: t.border },
   stepCardMain: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   stepNum: { width: 22, height: 22, borderRadius: 11, backgroundColor: t.accentFaded, justifyContent: 'center', alignItems: 'center' },
-  stepNumText: { fontSize: 12, fontWeight: '700', color: t.accent },
-  stepText: { flex: 1, fontSize: 14, color: t.text, lineHeight: 20 },
+  stepNumText: { ...type.label, fontSize: 12, lineHeight: 16, color: t.accent },
+  stepText: { flex: 1, ...type.body, fontSize: 14, color: t.text, lineHeight: 20 },
   badgeRow: { flexDirection: 'row', gap: 6, marginTop: 8, marginLeft: 32 },
-  badge: { flexDirection: 'row', alignItems: 'center', backgroundColor: t.accentFaded, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
-  badgeText: { fontSize: 11, color: t.accent, fontWeight: '600' },
 });
 
 export default RecipeView;

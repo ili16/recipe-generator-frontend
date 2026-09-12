@@ -10,8 +10,10 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import authService from '../services/authService';
 import { UserProfile } from '../types';
 import Loading from '../components/Loading';
-import { useTheme, Theme } from '../context/ThemeContext';
+import { useTheme, Theme, ThemeMode } from '../context/ThemeContext';
+import { type } from '../theme';
 import { useEscapeBack } from '../hooks/useEscapeBack';
+import { Chip } from '../components/ui';
 import { useAlert } from '../context/AlertContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
@@ -20,10 +22,26 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const { theme } = useTheme();
+  const { theme, mode, setMode } = useTheme();
   const { showAlert } = useAlert();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
+
+  const appearance = (
+    <View style={styles.field}>
+      <Text style={styles.label}>Appearance</Text>
+      <View style={styles.modeRow}>
+        {(['system', 'light', 'dark'] as ThemeMode[]).map((m) => (
+          <Chip
+            key={m}
+            label={m === 'system' ? 'System' : m === 'light' ? 'Light' : 'Dark'}
+            selected={mode === m}
+            onPress={() => setMode(m)}
+          />
+        ))}
+      </View>
+    </View>
+  );
 
   useEffect(() => {
     loadProfile();
@@ -40,7 +58,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Error loading profile:', error);
-      showAlert('Error', 'Failed to load profile');
+      showAlert('Error', 'Failed to load profile', 'error');
     } finally {
       setLoading(false);
     }
@@ -52,10 +70,10 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       await authService.logout();
       setIsAuthenticated(false);
       setProfile(null);
-      navigation.navigate('Generate');
+      navigation.navigate('Chat');
     } catch (error) {
       console.error('Logout error:', error);
-      showAlert('Error', 'Failed to logout');
+      showAlert('Error', 'Failed to logout', 'error');
     } finally {
       setLoading(false);
     }
@@ -71,10 +89,11 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Not Signed In</Text>
           <Text style={styles.muted}>Sign in to view your profile and save recipes</Text>
+          {appearance}
           <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Login')}>
             <Text style={styles.primaryButtonText}>Sign In</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Generate')}>
+          <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Chat')}>
             <Text style={styles.ghostButtonText}>Continue Without Sign In</Text>
           </TouchableOpacity>
         </View>
@@ -98,6 +117,8 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.value}>{profile.email}</Text>
           </View>
         ) : null}
+
+        {appearance}
 
         <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Preferences')}>
           <Text style={styles.ghostButtonText}>Preferences</Text>
@@ -130,13 +151,12 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     gap: 16,
   },
   cardTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    ...type.title,
     color: t.text,
     marginBottom: 4,
   },
   muted: {
-    fontSize: 14,
+    ...type.body, fontSize: 14,
     color: t.muted,
     lineHeight: 20,
   },
@@ -144,16 +164,19 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     gap: 4,
   },
   label: {
-    fontSize: 12,
+    ...type.label, fontSize: 12,
+    lineHeight: 16,
     color: t.muted,
-    fontWeight: '500',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   value: {
-    fontSize: 16,
+    ...type.body, fontSize: 16,
     color: t.text,
-    fontWeight: '500',
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
   },
   primaryButton: {
     backgroundColor: t.accent,
@@ -163,9 +186,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginTop: 4,
   },
   primaryButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
+    color: t.onAccent,
+    ...type.label, fontSize: 15,
   },
   ghostButton: {
     padding: 10,
@@ -173,7 +195,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   ghostButtonText: {
     color: t.subtext,
-    fontSize: 14,
+    ...type.body, fontSize: 14,
   },
 });
 

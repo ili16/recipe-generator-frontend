@@ -3,13 +3,17 @@ export interface Recipe {
   recipename: string;
   recipe: string;
   tags?: string[];
-  createdAt?: string;
   structured?: RecipeDocument;
   manually_edited?: boolean;
   my_vote?: 1 | -1 | null;
   // Links back to the saved recipe this was generated as a variant of (POST
   // /meal-plan/variants/:id, persisted at save time), if any.
   variant_of_recipe_id?: number | null;
+  // Where this recipe came from, recorded at save time. `source_url` is set for
+  // 'url' only; both are absent on recipes saved before BACKLOG 3.7.
+  source_type?: 'text' | 'url' | 'image' | 'voice' | 'manual' | 'import';
+  source_url?: string | null;
+  created_at?: string;
 }
 
 export interface RecipeGeneratePayload {
@@ -24,6 +28,7 @@ export interface RecipeDocument {
   language: string;
   tags: string[];
   servings?: number | null;
+  total_minutes?: number | null;
   prep_minutes?: number | null;
   cook_minutes?: number | null;
   difficulty?: string | null;
@@ -47,19 +52,6 @@ export interface RecipeDocument {
 export interface RecipeResponse {
   recipename: string;
   recipe: string;
-  structured?: RecipeDocument;
-  generation_id?: string;
-}
-
-// POST /refine-recipe response: a status envelope instead of always a new recipe, so
-// the backend can refuse a change that breaks the dish's identity, or ask the caller
-// to pick from a short list of substitutions, instead of silently guessing.
-export interface RefineResult {
-  status: 'applied' | 'rejected' | 'needs_choice';
-  message?: string;
-  options?: string[];
-  recipename?: string;
-  recipe?: string;
   structured?: RecipeDocument;
 }
 
@@ -119,7 +111,6 @@ export interface UserPreferences {
   skill_level: 'beginner' | 'intermediate' | 'advanced' | null;
   dietary_prefs: string[];
   disliked_ingredients: string[];
-  cooking_cadence: 'daily' | 'every_couple_days' | 'meal_prep_batching' | null;
   // Meal-plan scheduling: days the user needs no food planned at all (a true skip), days
   // they don't want to cook but still eat (a leftover day, repeats the prior cooked
   // day's dish), and how many consecutive days one recipe should cover (1 = fresh every
@@ -129,15 +120,6 @@ export interface UserPreferences {
   meal_plan_batch_days: 1 | 2 | 3;
   // Which weekday the user's meal-plan week begins on.
   week_start_day: Weekday;
-}
-
-// GET/PATCH /meal-plan/week-preferences?starts_on=... - per-week override of the 3
-// scheduling fields above. null on a field means "inherit the global UserPreferences
-// default"; a concrete value (including an empty array) overrides it for that week.
-export interface MealPlanWeekPreferences {
-  no_food_days: Weekday[] | null;
-  no_cook_days: Weekday[] | null;
-  batch_days: 1 | 2 | 3 | null;
 }
 
 export type GenerateMethod = 'description' | 'link' | 'image' | 'voice';
@@ -174,8 +156,45 @@ export interface MealPlanSuggestion {
   assignments: MealPlanAssignment[];
 }
 
-// One exchange in an in-progress /meal-plan/chat conversation.
-export interface MealPlanChatTurn {
-  message: string;
-  plan: MealPlanSuggestion;
+// ---- POST /chat (the agent loop) -------------------------------------------
+
+// A structured tool result the transcript renders as a card instead of prose.
+// `draft_ref` names an unsaved draft the agent can still transform; `recipe_id` a saved one.
+export type ChatArtifact =
+  | { kind: 'recipe'; data: { draft_ref?: string; recipe_id?: number; document: RecipeDocument } }
+  | { kind: 'week_plan'; data: { starts_on: string; ends_on: string; plan: MealPlanSuggestion } };
+
+// What the composer can hang on a turn. An image travels inline as a data URL or bare
+// base64 — /chat is JSON, and the server sniffs the bytes before they reach the model.
+export type ChatAttachment =
+  | { type: 'url'; url: string }
+  | { type: 'image'; data: string };
+
+// The SSE frames one turn emits, in the order they can arrive.
+export type ChatStreamEvent =
+  | { type: 'token'; payload: { text: string } }
+  | { type: 'tool_start'; payload: { name: string; args: string } }
+  | { type: 'tool_end'; payload: { name: string; ok: boolean } }
+  | { type: 'artifact'; payload: ChatArtifact }
+  | { type: 'done'; payload: { conversation_id: string } };
+
+// What the agent is extracting from, read off the tool call's own arguments and shown
+// before the recipe arrives (BACKLOG.md 3.7). `value` is the URL, the photo's data URL,
+// or the description the agent worked from.
+export interface ChatSource {
+  kind: 'url' | 'photo' | 'text';
+  value: string;
+}
+
+// One rendered turn in the thread. Tool names are kept so a turn that only ran tools
+// still shows what happened.
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  /** How many photos the user attached to this turn; the bytes themselves are not kept. */
+  attachmentCount?: number;
+  tools?: string[];
+  sources?: ChatSource[];
+  artifacts?: ChatArtifact[];
+  error?: string;
 }

@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import * as AuthSession from 'expo-auth-session';
 import { Platform } from 'react-native';
-import { KEYCLOAK_CONFIG, STORAGE_KEYS } from '../constants';
+import { KEYCLOAK_CONFIG, STORAGE_KEYS, mealPlanCacheKeys } from '../constants';
 import { UserProfile } from '../types';
 
 // 'login' sends the user to Keycloak's login page; 'signup' sends them straight
@@ -220,8 +220,13 @@ class AuthService {
   async logout(): Promise<void> {
     const accessToken = this.accessToken ?? await AsyncStorage.getItem(STORAGE_KEYS.USER_TOKEN);
     const refreshToken = this.refreshToken ?? await AsyncStorage.getItem(STORAGE_KEYS.USER_REFRESH_TOKEN);
+    const userId = accessToken ? this.decodeUserId(accessToken) : null;
 
     await this.clearSession();
+    if (userId) {
+      const keys = mealPlanCacheKeys(userId);
+      await AsyncStorage.multiRemove([keys.items, keys.recipes]).catch(() => {});
+    }
 
     try {
       if (accessToken) {
@@ -349,7 +354,7 @@ class AuthService {
     return this.readJwtExpiry(accessToken);
   }
 
-  private readJwtExpiry(token: string): number | null {
+  private decodeJwtPayload(token: string): { exp?: number; sub?: string } | null {
     try {
       const [, payload] = token.split('.');
       if (!payload) {
@@ -358,13 +363,28 @@ class AuthService {
 
       const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
       const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-      const decoded = atob(padded);
-      const parsed = JSON.parse(decoded) as { exp?: number };
-
-      return typeof parsed.exp === 'number' ? parsed.exp * 1000 : null;
+      return JSON.parse(atob(padded));
     } catch {
       return null;
     }
+  }
+
+  private readJwtExpiry(token: string): number | null {
+    const parsed = this.decodeJwtPayload(token);
+    return typeof parsed?.exp === 'number' ? parsed.exp * 1000 : null;
+  }
+
+  private decodeUserId(token: string): string | null {
+    const parsed = this.decodeJwtPayload(token);
+    return typeof parsed?.sub === 'string' ? parsed.sub : null;
+  }
+
+  // The OIDC subject claim — same id the backend keys `users.oauth_id` by — used to scope
+  // per-account local caches (see MealPlanContext) so a shared device never shows one
+  // account's cached data to another.
+  async getUserId(): Promise<string | null> {
+    const token = await this.getAccessToken();
+    return token ? this.decodeUserId(token) : null;
   }
 
   private isTokenExpiringSoon(): boolean {

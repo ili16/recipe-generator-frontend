@@ -5,28 +5,20 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import authService from '../services/authService';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { type } from '../theme';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import WeekView from './mealplan/WeekView';
-import DayView from './mealplan/DayView';
-import MonthView from './mealplan/MonthView';
+import TodayBanner from './mealplan/TodayBanner';
 import { MealPlanProvider } from '../context/MealPlanContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MealPlan'>;
 
-type ViewMode = 'day' | 'week' | 'month';
-const VIEW_MODES: { key: ViewMode; label: string }[] = [
-  { key: 'day', label: 'Day' },
-  { key: 'week', label: 'Week' },
-  { key: 'month', label: 'Month' },
-];
-
-// Thin shell: auth gate, the Day/Week/Month switcher, and the date the active view is
-// centered on. Week is the default per the product brief — it's the only view with the
-// AI suggest/chat flow.
+// Thin shell: auth gate plus the week the planner is centered on. Week is the only view —
+// the Day timeline and Month grid were deleted (BACKLOG 4.1); neither showed what a day
+// was planned for, and only Week has the AI suggest/chat flow.
 const MealPlanScreen: React.FC<Props> = ({ navigation }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -58,29 +50,11 @@ const MealPlanScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
-  const openDay = (d: Date) => {
-    setSelectedDate(d);
-    setViewMode('day');
-  };
-
   return (
     <MealPlanProvider>
       <View style={styles.container}>
-        <View style={styles.switcher}>
-          {VIEW_MODES.map(m => (
-            <TouchableOpacity
-              key={m.key}
-              style={[styles.switchButton, viewMode === m.key && styles.switchButtonActive]}
-              onPress={() => setViewMode(m.key)}
-            >
-              <Text style={[styles.switchButtonText, viewMode === m.key && styles.switchButtonTextActive]}>{m.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {viewMode === 'week' && <WeekView selectedDate={selectedDate} onChangeDate={setSelectedDate} />}
-        {viewMode === 'day' && <DayView selectedDate={selectedDate} onChangeDate={setSelectedDate} />}
-        {viewMode === 'month' && <MonthView selectedDate={selectedDate} onChangeDate={setSelectedDate} onOpenDay={openDay} />}
+        <TodayBanner navigation={navigation} />
+        <WeekView selectedDate={selectedDate} onChangeDate={setSelectedDate} navigation={navigation} />
       </View>
     </MealPlanProvider>
   );
@@ -88,16 +62,11 @@ const MealPlanScreen: React.FC<Props> = ({ navigation }) => {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.bg },
-  switcher: { flexDirection: 'row', padding: 12, gap: 8 },
-  switchButton: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8, backgroundColor: t.surface, borderWidth: 1, borderColor: t.hairline },
-  switchButtonActive: { backgroundColor: t.accent, borderColor: t.accent },
-  switchButtonText: { fontSize: 13, fontWeight: '600', color: t.subtext },
-  switchButtonTextActive: { color: '#fff' },
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8 },
-  emptyText: { fontSize: 18, fontWeight: '700', color: t.text },
-  emptySubtext: { fontSize: 14, color: t.subtext, textAlign: 'center' },
+  emptyText: { ...type.title, fontSize: 18, lineHeight: 26, color: t.text },
+  emptySubtext: { ...type.body, fontSize: 14, color: t.subtext, textAlign: 'center' },
   signInButton: { marginTop: 16, backgroundColor: t.accent, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 },
-  signInButtonText: { color: '#fff', fontWeight: '700' },
+  signInButtonText: { color: t.onAccent, ...type.label },
 });
 
 export default MealPlanScreen;

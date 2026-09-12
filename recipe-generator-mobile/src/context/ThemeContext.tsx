@@ -1,72 +1,51 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { useColorScheme } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '../constants';
+import { darkTheme, lightTheme, Theme } from '../theme';
 
-export interface Theme {
-  dark: boolean;
-  bg: string;
-  surface: string;
-  card: string;
-  border: string;
-  hairline: string;
-  text: string;
-  subtext: string;
-  muted: string;
-  placeholder: string;
-  accent: string;
-  accentFaded: string;
-  shadow: string;
-}
+// The tokens live in `src/theme/` (BACKLOG 5.1); this file only chooses between them.
+// Re-exported so the ~29 files that already `import { Theme } from '.../ThemeContext'` keep working.
+export type { Theme };
 
-const dark: Theme = {
-  dark: true,
-  bg: '#16161a',
-  surface: '#1f1f23',
-  card: '#252529',
-  border: '#38383f',
-  hairline: '#2c2c31',
-  text: '#eeeef2',
-  subtext: '#b0b0b8',
-  muted: '#72727a',
-  placeholder: '#72727a',
-  accent: '#cc2222',
-  accentFaded: '#2e1212',
-  shadow: '#cc2222',
-};
+export type ThemeMode = 'system' | 'light' | 'dark';
 
-const light: Theme = {
-  dark: false,
-  bg: '#f5f5f5',
-  surface: '#ffffff',
-  card: '#ffffff',
-  border: '#e0e0e0',
-  hairline: '#ebebeb',
-  text: '#111111',
-  subtext: '#555555',
-  muted: '#999999',
-  placeholder: '#aaaaaa',
-  accent: '#cc2222',
-  accentFaded: '#fff0f0',
-  shadow: '#cc2222',
-};
+const isMode = (v: unknown): v is ThemeMode => v === 'system' || v === 'light' || v === 'dark';
 
 interface ThemeContextValue {
   theme: Theme;
+  mode: ThemeMode;
   isDark: boolean;
-  toggle: () => void;
+  setMode: (mode: ThemeMode) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: dark,
+  theme: darkTheme,
+  mode: 'system',
   isDark: true,
-  toggle: () => {},
+  setMode: () => {},
 });
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [isDark, setIsDark] = useState(true);
+  const scheme = useColorScheme();
+  // 'system' is also the pre-hydration value, so the first frame already follows the OS.
+  const [mode, setModeState] = useState<ThemeMode>('system');
 
-  const toggle = () => setIsDark((prev) => !prev);
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.THEME_MODE)
+      .then((stored) => { if (isMode(stored)) setModeState(stored); })
+      .catch(() => {}); // a missing preference just means "system"
+  }, []);
+
+  const setMode = (next: ThemeMode) => {
+    setModeState(next);
+    AsyncStorage.setItem(STORAGE_KEYS.THEME_MODE, next).catch(() => {});
+  };
+
+  const isDark = mode === 'system' ? scheme !== 'light' : mode === 'dark';
 
   return (
-    <ThemeContext.Provider value={{ theme: isDark ? dark : light, isDark, toggle }}>
+    <ThemeContext.Provider value={{ theme: isDark ? darkTheme : lightTheme, mode, isDark, setMode }}>
       {children}
     </ThemeContext.Provider>
   );

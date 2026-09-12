@@ -20,6 +20,13 @@ export function parseISODate(iso: string): Date {
 const WEEKDAY_INDEX: Record<string, number> = {
   sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
 };
+const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+
+// Lowercase weekday name for d, matching the format meal_plan_no_food_days /
+// meal_plan_no_cook_days store (the inverse of WEEKDAY_INDEX).
+export function weekdayName(d: Date): typeof WEEKDAY_NAMES[number] {
+  return WEEKDAY_NAMES[d.getDay()];
+}
 
 // The most recent (or same) occurrence of weekStartDay on/before d. Defaults to Monday
 // for an unrecognized weekStartDay.

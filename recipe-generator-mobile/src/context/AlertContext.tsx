@@ -17,10 +17,20 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, Theme } from './ThemeContext';
+import { type } from '../theme';
+
+/** Omit it for a neutral alert; the caller always knows which it is. */
+export type AlertSeverity = 'error' | 'success';
+
+const ICONS: Record<AlertSeverity, React.ComponentProps<typeof Ionicons>['name']> = {
+  error: 'warning-outline',
+  success: 'checkmark-circle-outline',
+};
 
 interface AlertConfig {
   title: string;
   message?: string;
+  severity?: AlertSeverity;
   confirmLabel?: string;
   destructive?: boolean;
   isConfirm: boolean;
@@ -28,7 +38,7 @@ interface AlertConfig {
 }
 
 interface AlertContextValue {
-  showAlert: (title: string, message?: string) => void;
+  showAlert: (title: string, message?: string, severity?: AlertSeverity) => void;
   confirmAction: (
     title: string,
     message: string,
@@ -40,17 +50,6 @@ const AlertContext = createContext<AlertContextValue>({
   showAlert: () => {},
   confirmAction: async () => false,
 });
-
-function iconFor(title: string, message = ''): { name: React.ComponentProps<typeof Ionicons>['name']; bg: string; color: string } | null {
-  const text = (title + ' ' + message).toLowerCase();
-  if (/error|fail|invalid|no recipe|permission|unsupported|sorry|could not/i.test(text))
-    return { name: 'warning-outline', bg: '#2d1010', color: '#e53935' };
-  if (/success|saved|deleted/i.test(text))
-    return { name: 'checkmark-circle-outline', bg: '#0d2316', color: '#4caf50' };
-  if (/welcome|sign/i.test(text))
-    return { name: 'person-circle-outline', bg: '#121a2d', color: '#5c9cf5' };
-  return null;
-}
 
 export function AlertProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<AlertConfig | null>(null);
@@ -74,8 +73,8 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     setConfig(null);
   };
 
-  const showAlert = (title: string, message?: string) =>
-    new Promise<boolean>(resolve => open({ title, message, isConfirm: false, resolve }));
+  const showAlert = (title: string, message?: string, severity?: AlertSeverity) =>
+    new Promise<boolean>(resolve => open({ title, message, severity, isConfirm: false, resolve }));
 
   const confirmAction = (
     title: string,
@@ -92,7 +91,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
       })
     );
 
-  const icon = config ? iconFor(config.title, config.message) : null;
+  const severity = config?.severity;
 
   return (
     <AlertContext.Provider value={{ showAlert, confirmAction }}>
@@ -107,9 +106,13 @@ export function AlertProvider({ children }: { children: ReactNode }) {
         <Animated.View style={[styles.overlay, { opacity: opacityAnim }]}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !config?.isConfirm && close(false)} />
           <Animated.View style={[styles.card, { transform: [{ scale: scaleAnim }] }]}>
-            {icon && (
-              <View style={[styles.iconWrap, { backgroundColor: icon.bg }]}>
-                <Ionicons name={icon.name} size={26} color={icon.color} />
+            {severity && (
+              <View style={styles.iconWrap}>
+                <Ionicons
+                  name={ICONS[severity]}
+                  size={26}
+                  color={severity === 'error' ? t.danger : t.success}
+                />
               </View>
             )}
             <Text style={styles.title}>{config?.title}</Text>
@@ -142,7 +145,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     overlay: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.6)',
+      backgroundColor: t.overlay,
       justifyContent: 'center',
       alignItems: 'center',
       paddingHorizontal: 32,
@@ -150,7 +153,7 @@ const makeStyles = (t: Theme) =>
     card: {
       width: '100%',
       maxWidth: 340,
-      backgroundColor: t.card,
+      backgroundColor: t.surfaceRaised,
       borderRadius: 20,
       borderWidth: 1,
       borderColor: t.border,
@@ -159,7 +162,7 @@ const makeStyles = (t: Theme) =>
       paddingBottom: 20,
       alignItems: 'center',
       // shadow for iOS
-      shadowColor: '#000',
+      shadowColor: t.shadow,
       shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.28,
       shadowRadius: 18,
@@ -170,19 +173,20 @@ const makeStyles = (t: Theme) =>
       width: 52,
       height: 52,
       borderRadius: 26,
+      backgroundColor: t.surface,
       justifyContent: 'center',
       alignItems: 'center',
       marginBottom: 16,
     },
     title: {
-      fontSize: 17,
-      fontWeight: '700',
+      ...type.title, fontSize: 17,
+      lineHeight: 24,
       color: t.text,
       textAlign: 'center',
       marginBottom: 6,
     },
     message: {
-      fontSize: 13,
+      ...type.body, fontSize: 13,
       color: t.muted,
       textAlign: 'center',
       lineHeight: 19,
@@ -204,9 +208,8 @@ const makeStyles = (t: Theme) =>
       alignItems: 'center',
     },
     btnOkText: {
-      color: '#fff',
-      fontSize: 14,
-      fontWeight: '700',
+      color: t.onAccent,
+      ...type.label,
     },
     btnCancel: {
       flex: 1,
@@ -219,13 +222,12 @@ const makeStyles = (t: Theme) =>
     },
     btnCancelText: {
       color: t.subtext,
-      fontSize: 14,
-      fontWeight: '600',
+      ...type.label,
     },
     btnDestructive: {
-      backgroundColor: '#c0392b',
+      backgroundColor: t.danger,
     },
     btnDestructiveText: {
-      color: '#fff',
+      color: t.onDanger,
     },
   });

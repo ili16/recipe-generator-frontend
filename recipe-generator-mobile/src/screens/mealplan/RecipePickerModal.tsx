@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, FlatList } from 'react-native';
 import { Recipe } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { type } from '../../theme';
 
 interface Props {
   visible: boolean;
@@ -41,12 +42,12 @@ const RecipePickerModal: React.FC<Props> = ({ visible, recipes, onSelect, onClos
 };
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+  modalOverlay: { flex: 1, backgroundColor: t.overlay, justifyContent: 'center', padding: 24 },
   modalContent: { backgroundColor: t.surface, borderRadius: 16, padding: 16, maxHeight: '70%' },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: t.text, marginBottom: 12 },
-  emptySubtext: { fontSize: 14, color: t.subtext, textAlign: 'center' },
-  pickerRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: t.hairline },
-  pickerRowText: { color: t.text, fontSize: 15 },
+  modalTitle: { ...type.title, fontSize: 16, lineHeight: 22, color: t.text, marginBottom: 12 },
+  emptySubtext: { ...type.body, fontSize: 14, color: t.subtext, textAlign: 'center' },
+  pickerRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: t.border },
+  pickerRowText: { color: t.text, ...type.body },
 });
 
 export default RecipePickerModal;
