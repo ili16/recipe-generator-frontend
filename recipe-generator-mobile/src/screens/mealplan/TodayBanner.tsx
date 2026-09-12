@@ -34,8 +34,8 @@ interface Props {
  * bordered week-picker bar, which put the chrome above the content.
  *
  * Also the only place a plan turns into cooking: decide → cook is one tap from here, not a
- * separate feature reached from another screen. (Shopping is the missing middle step; there is no
- * grocery domain yet — BACKLOG 6.1.)
+ * separate feature reached from another screen. (Shopping, the middle step, is its own
+ * destination now — `GroceryListScreen`, BACKLOG 6.1.)
  *
  * Still owns the best-effort local push reminder timed to when prep should start, and still lives
  * inside MealPlanProvider so it reads today's item from the shared cache.
@@ -48,7 +48,12 @@ const TodayBanner: React.FC<Props> = ({ navigation }) => {
   const todayISO = toISODate(new Date());
   useEffect(() => { ensureRange(todayISO, todayISO); }, [todayISO, ensureRange]);
 
-  const item = itemsByDate[todayISO] ?? null;
+  // A day can hold several meals now (BACKLOG 6.4). The banner answers "what should I
+  // cook next", so it takes the first of today's meals whose start time is still ahead,
+  // and falls back to the last one once the day is over.
+  const todayMeals = itemsByDate[todayISO] ?? [];
+  const nowHHMM = new Date().toTimeString().slice(0, 8);
+  const item = todayMeals.find(m => m.start_time >= nowHHMM) ?? todayMeals[todayMeals.length - 1] ?? null;
   const fullRecipe = item ? recipes.find(r => r.id === item.recipe_id) : undefined;
   const totalMinutes = totalTimeMinutes(fullRecipe?.structured);
 
@@ -99,7 +104,7 @@ const TodayBanner: React.FC<Props> = ({ navigation }) => {
 
   return (
     <View style={styles.hero}>
-      <Text variant="caption" tone="muted">TONIGHT</Text>
+      <Text variant="caption" tone="muted">{item.meal_slot.toUpperCase()}</Text>
       <Text variant="display" numberOfLines={2}>{item.recipe_title}</Text>
       {doc?.summary ? <Text variant="body" tone="subtle" numberOfLines={2}>{doc.summary}</Text> : null}
 

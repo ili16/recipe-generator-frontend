@@ -8,6 +8,13 @@ import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AlertProvider } from './src/context/AlertContext';
 import authService from './src/services/authService';
 import Loading from './src/components/Loading';
+import SharedRecipeScreen from './src/screens/SharedRecipeScreen';
+
+// Web only: /s/<token> is a public, read-only recipe (BACKLOG 8.4). Read straight off
+// the URL rather than through the navigator — the shared view has no nav, no auth and
+// nothing else in the app links to it.
+const sharedToken =
+  Platform.OS === 'web' ? window.location.pathname.match(/^\/s\/([\w-]+)$/)?.[1] : undefined;
 
 // Web only: if we just landed back from Keycloak's redirect (see
 // authService.login), there's a `?code=&state=` pair to exchange for tokens
@@ -31,6 +38,15 @@ function Root() {
 
   if (!fontsLoaded && !fontError) {
     return <Loading visible />;
+  }
+
+  if (sharedToken) {
+    return (
+      <>
+        <SharedRecipeScreen token={sharedToken} />
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+      </>
+    );
   }
 
   if (!authReady) {

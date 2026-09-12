@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealPlanSuggestion, ChatStreamEvent, ChatAttachment, Collection } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection } from '../types';
 import authService from './authService';
 import { getLocales } from 'expo-localization';
 
@@ -279,6 +279,25 @@ class ApiService {
     else await this.client.delete(path);
   }
 
+  /* ── Read-only share link (BACKLOG 8.4) ──────────────────────────────────── */
+
+  // Turns sharing on and returns the token. Idempotent: an already-shared recipe
+  // returns the same token, so a second tap never invalidates a link already sent.
+  async shareRecipe(recipeId: number): Promise<string> {
+    const response = await this.client.post<{ share_token: string }>(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/share`);
+    return response.data.share_token;
+  }
+
+  async unshareRecipe(recipeId: number): Promise<void> {
+    await this.client.delete(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/share`);
+  }
+
+  // Unauthenticated on purpose — the token is the credential.
+  async getSharedRecipe(token: string): Promise<Recipe> {
+    const response = await this.client.get<Recipe>(`${API_ENDPOINTS.SHARED}/${token}`);
+    return response.data;
+  }
+
   async getRecipeById(recipeId: number): Promise<Recipe> {
     const response = await this.client.get<Recipe>(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}`);
     return response.data;
@@ -329,6 +348,16 @@ class ApiService {
     await this.client.delete(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/vote`);
   }
 
+  // Mark a recipe cooked now (BACKLOG 6.3) — keeps it out of meal-plan suggestions for
+  // a couple of weeks. Idempotent: re-marking just moves the timestamp forward.
+  async markCooked(recipeId: number): Promise<void> {
+    await this.client.put(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/cooked`);
+  }
+
+  async unmarkCooked(recipeId: number): Promise<void> {
+    await this.client.delete(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/cooked`);
+  }
+
   // Get every meal-plan item in [startsOn, endsOn]. endsOn defaults server-side to
   // startsOn+6d (a week) when omitted.
   async getMealPlanWeek(startsOn: string, endsOn?: string): Promise<MealPlanWeek> {
@@ -338,12 +367,26 @@ class ApiService {
     return response.data;
   }
 
-  // Assign a saved recipe to a day (upsert — replaces whatever was already there)
-  async addMealPlanItem(recipeId: number, plannedOn: string, startTime?: string): Promise<MealPlanItem> {
+  // The week's shopping list, derived from the plan server-side. endsOn defaults to
+  // startsOn+6d, exactly as getMealPlanWeek does.
+  async getGroceryList(startsOn: string, endsOn?: string): Promise<GroceryList> {
+    const response = await this.client.get<GroceryList>(API_ENDPOINTS.GROCERY_LIST, {
+      params: { starts_on: startsOn, ...(endsOn ? { ends_on: endsOn } : {}) },
+    });
+    return response.data;
+  }
+
+  // Assign a saved recipe to one meal slot of a day (upsert — replaces whatever was in
+  // that slot, leaving the day's other meals alone; BACKLOG 6.4). Because it upserts,
+  // re-posting the same recipe with a different `servings` is also how a planned day's
+  // servings get changed (BACKLOG 6.2). Omitting mealSlot means dinner.
+  async addMealPlanItem(recipeId: number, plannedOn: string, startTime?: string, servings?: number, mealSlot?: MealSlot): Promise<MealPlanItem> {
     const response = await this.client.post<MealPlanItem>(API_ENDPOINTS.MEAL_PLAN_ITEMS, {
       recipe_id: recipeId,
       planned_on: plannedOn,
       ...(startTime ? { start_time: startTime } : {}),
+      ...(servings ? { servings } : {}),
+      ...(mealSlot ? { meal_slot: mealSlot } : {}),
     });
     return response.data;
   }

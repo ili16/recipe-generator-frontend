@@ -21,6 +21,8 @@ interface Props {
   onToggle: () => void;
   onCook: () => void;
   onDelete: () => void;
+  /** Share on (copies the link) when unshared, revoke when shared — BACKLOG 8.4. */
+  onToggleShare: () => void;
   onVote: (vote: 1 | -1) => void;
   ensureStructured: (recipe: Recipe) => Promise<RecipeDocument | null>;
   onSaveEdit: (doc: RecipeDocument) => Promise<boolean>;
@@ -38,7 +40,7 @@ type Panel = 'none' | 'edit' | 'refine' | 'variant' | 'history' | 'collections';
 // One recipe in the library list: collapsed header, and when expanded the recipe plus
 // whichever of the four inline flows the user opened.
 const RecipeCard: React.FC<Props> = ({
-  recipe, expanded, variantOfName, variantCount = 0, onToggle, onCook, onDelete, onVote,
+  recipe, expanded, variantOfName, variantCount = 0, onToggle, onCook, onDelete, onToggleShare, onVote,
   ensureStructured, onSaveEdit, onRefine, onGenerateVariant, onAcceptVariant, onLoadHistory,
   collections, onToggleCollection, onCreateCollection,
 }) => {
@@ -131,8 +133,11 @@ const RecipeCard: React.FC<Props> = ({
           {originLabel(recipe) && (
             <Text style={styles.variantOfCaption}>{originLabel(recipe)}</Text>
           )}
-          {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0 || variantCount > 0) && (
+          {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0 || variantCount > 0 || !!recipe.share_token) && (
             <View style={styles.tagBadgeRow}>
+              {!!recipe.share_token && (
+                <Badge label="Shared" icon={<Ionicons name="link" size={11} color={theme.accent} />} />
+              )}
               {variantCount > 0 && (
                 <Badge
                   label={`${variantCount} variant${variantCount === 1 ? '' : 's'}`}
@@ -240,6 +245,15 @@ const RecipeCard: React.FC<Props> = ({
                 <TouchableOpacity style={s.cookButton} onPress={onCook}>
                   <Ionicons name="flame-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
                   <Text style={s.cookButtonText}>Cook</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.cookButton} onPress={onToggleShare}>
+                  <Ionicons
+                    name={recipe.share_token ? 'link' : 'link-outline'}
+                    size={14}
+                    color={theme.accent}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={s.cookButtonText}>{recipe.share_token ? 'Stop sharing' : 'Share link'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cookButton} onPress={() => onVote(1)}>
                   <Ionicons name={recipe.my_vote === 1 ? 'thumbs-up' : 'thumbs-up-outline'} size={14} color={theme.accent} />

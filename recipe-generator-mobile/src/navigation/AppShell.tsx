@@ -6,6 +6,7 @@ import { useTheme, Theme } from '../context/ThemeContext';
 import Sidebar from '../components/Sidebar';
 import { Text, useIsDesktopNav } from '../components/ui';
 import { space } from '../theme';
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen';
 import { NAV_ITEMS } from './navItems';
 import AppNavigator, { RootStackParamList } from './AppNavigator';
 
@@ -22,8 +23,8 @@ type NavigateFn = (route: keyof RootStackParamList) => void;
  * screens under a second navigator and reworking `RootStackParamList` and the in-screen
  * `navigate('Chat')` calls, to buy a row of buttons.
  *
- * ponytail: the bar does not hide itself when the keyboard opens, so on Android (adjustResize) it
- * eats ~56px while typing. Add a `Keyboard` listener if that annoys in practice.
+ * It hides itself while the keyboard is up (`useKeyboardOpen`): on a phone the keyboard already
+ * owns half the screen, and the tabs are unreachable behind it anyway.
  */
 const TabBar: React.FC<{ activeRoute: string; onNavigate: NavigateFn }> = ({ activeRoute, onNavigate }) => {
   const { theme } = useTheme();
@@ -51,6 +52,30 @@ const TabBar: React.FC<{ activeRoute: string; onNavigate: NavigateFn }> = ({ act
   );
 };
 
+/**
+ * The narrow top row. The native stack header used to sit here spelling out "Recipe Generator"
+ * above every screen — a title the tab bar already gives, on a phone that has none to spare. All
+ * that is left is the way into Profile, which narrow has no rail for.
+ */
+const TopBar: React.FC<{ onPress: () => void }> = ({ onPress }) => {
+  const { theme } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+
+  return (
+    <View style={styles.topBar}>
+      <TouchableOpacity
+        style={styles.topBtn}
+        onPress={onPress}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Profile"
+      >
+        <Ionicons name="person-circle-outline" size={26} color={theme.subtext} />
+      </TouchableOpacity>
+    </View>
+  );
+};
+
 const AppShell: React.FC = () => {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -58,8 +83,12 @@ const AppShell: React.FC = () => {
   const [railCollapsed, setRailCollapsed] = useState(false);
 
   const isDesktopNav = useIsDesktopNav();
+  const keyboardOpen = useKeyboardOpen();
   // Cooking mode is immersive and already opts out of the stack header for the same reason.
   const showChrome = activeRoute !== 'CookingMode';
+  // Sub-screens (Profile, Preferences, Login) keep their own stack header with its back arrow,
+  // so the top row would be a second, redundant way into a screen you are already on.
+  const isTabRoute = NAV_ITEMS.some((item) => item.route === activeRoute);
 
   const navigate: NavigateFn = (route) => {
     // Tabs and rail entries are top-level, so a tap replaces the stack instead of pushing onto
@@ -82,6 +111,11 @@ const AppShell: React.FC = () => {
       )}
 
       <View style={styles.content}>
+        {!isDesktopNav && isTabRoute && !keyboardOpen && (
+          // Pushed, not reset: Profile is a sub-screen on narrow and keeps its back arrow.
+          <TopBar onPress={() => navigationRef.isReady() && navigationRef.navigate('Profile')} />
+        )}
+
         <NavigationContainer
           ref={navigationRef}
           onStateChange={() => {
@@ -93,7 +127,9 @@ const AppShell: React.FC = () => {
         </NavigationContainer>
       </View>
 
-      {!isDesktopNav && showChrome && <TabBar activeRoute={activeRoute} onNavigate={navigate} />}
+      {!isDesktopNav && showChrome && !keyboardOpen && (
+        <TabBar activeRoute={activeRoute} onNavigate={navigate} />
+      )}
     </View>
   );
 };
@@ -105,6 +141,22 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: space.md,
+    // No SafeAreaProvider: the status-bar inset is a constant, as it is for the tab bar below.
+    // Web sits under the browser chrome and needs none.
+    paddingTop: Platform.OS === 'ios' ? 44 : space.sm, // status-bar height
+    paddingBottom: space.xs,
+    backgroundColor: t.bg,
+  },
+  topBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabBar: {
     flexDirection: 'row',

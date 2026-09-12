@@ -3,16 +3,16 @@ import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import apiService from '../../services/apiService';
-import { Recipe, MealPlanItem, UserPreferences } from '../../types';
+import { Recipe, MealPlanItem, MealSlot, MEAL_SLOTS, UserPreferences } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { useMealPlanContext } from '../../context/MealPlanContext';
 import { toISODate, addDays, startOfWeek } from '../../utils/mealPlanDates';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import RecipePickerModal from './RecipePickerModal';
-import DayCard from './DayCard';
+import DayCard, { PlannedMeal } from './DayCard';
 import { buildWeek } from './planDays';
-import { space } from '../../theme';
+import { radius, space } from '../../theme';
 import { Button, Sheet, SheetRow, Text } from '../../components/ui';
 
 interface Props {
@@ -45,8 +45,11 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   const weekEndISO = toISODate(addDays(weekStart, 6));
 
   const { itemsByDate, recipes, ensureRange, upsertItem, removeItem } = useMealPlanContext();
-  const [sheetDay, setSheetDay] = useState<string | null>(null);
-  const [pickerDay, setPickerDay] = useState<string | null>(null);
+  // A sheet and a picker are both about one *slot* of one day since BACKLOG 6.4, so both
+  // carry the slot they were opened for.
+  const [sheetMeal, setSheetMeal] = useState<PlannedMeal | null>(null);
+  const [picker, setPicker] = useState<{ iso: string; slot: MealSlot } | null>(null);
+  const [slotChoiceDay, setSlotChoiceDay] = useState<string | null>(null);
 
   const { theme } = useTheme();
   const { showAlert } = useAlert();
@@ -64,27 +67,40 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   }, []);
 
   const askAssistant = (prompt: string) => {
-    setSheetDay(null);
+    setSheetMeal(null);
     navigation.navigate('Chat', { prompt });
   };
 
   const assign = async (recipe: Recipe) => {
-    if (!pickerDay) return;
-    const dayISO = pickerDay;
-    setPickerDay(null);
+    if (!picker) return;
+    const { iso, slot } = picker;
+    setPicker(null);
     try {
-      upsertItem(await apiService.addMealPlanItem(recipe.id, dayISO));
+      upsertItem(await apiService.addMealPlanItem(recipe.id, iso, undefined, undefined, slot));
     } catch (error) {
       console.error('Error assigning recipe:', error);
       showAlert('Error', 'Failed to add recipe to plan', 'error');
     }
   };
 
+  // Servings are set by re-assigning the same recipe to the same day and slot: POST
+  // /meal-plan/items upserts on exactly that key, so there is no separate endpoint to
+  // call (BACKLOG 6.2).
+  const setServings = async (item: MealPlanItem, servings: number) => {
+    if (servings < 1 || servings > 99) return;
+    try {
+      upsertItem(await apiService.addMealPlanItem(item.recipe_id, item.planned_on, item.start_time, servings, item.meal_slot));
+    } catch (error) {
+      console.error('Error setting servings:', error);
+      showAlert('Error', 'Failed to change servings', 'error');
+    }
+  };
+
   const clear = async (item: MealPlanItem) => {
-    setSheetDay(null);
+    setSheetMeal(null);
     try {
       await apiService.deleteMealPlanItem(item.id);
-      removeItem(item.planned_on);
+      removeItem(item);
     } catch (error) {
       console.error('Error removing meal plan item:', error);
       showAlert('Error', 'Failed to remove recipe from plan', 'error');
@@ -100,14 +116,17 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     weekStart,
     today: new Date(),
     itemsByDate,
-    priorItem: itemsByDate[fetchStartISO] ?? null,
+    priorDay: itemsByDate[fetchStartISO] ?? [],
     recipesById,
     noCookDays: prefs?.meal_plan_no_cook_days ?? [],
   }), [weekStart, itemsByDate, fetchStartISO, recipesById, prefs?.meal_plan_no_cook_days]);
 
-  const sheet = sheetDay ? days.find(d => d.iso === sheetDay) ?? null : null;
-  const sheetItem = sheetDay ? itemsByDate[sheetDay] ?? null : null;
-  const planned = days.filter(d => d.kind !== 'empty').length;
+  const sheetItem = sheetMeal?.item ?? null;
+  const sheetWeekday = sheetMeal ? days.find(d => d.iso === sheetMeal.item.planned_on)?.weekday ?? '' : '';
+  const planned = days.filter(d => d.meals.length > 0).length;
+  // Unset servings mean "as the recipe is written", so the stepper starts from what the
+  // recipe yields (or 2, when the library cache doesn't know) rather than from zero.
+  const sheetServings = sheetItem?.servings ?? sheetMeal?.recipe?.structured?.servings ?? 2;
 
   return (
     <View style={styles.container}>
@@ -142,8 +161,9 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
             key={day.iso}
             day={day}
             onCook={recipe => navigation.navigate('CookingMode', { recipe })}
-            onSwap={() => setPickerDay(day.iso)}
-            onMore={() => setSheetDay(day.iso)}
+            onSwap={slot => setPicker({ iso: day.iso, slot })}
+            onMore={setSheetMeal}
+            onAdd={() => setSlotChoiceDay(day.iso)}
           />
         ))}
 
@@ -165,21 +185,61 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
         </TouchableOpacity>
       </ScrollView>
 
-      <Sheet visible={sheet !== null} onClose={() => setSheetDay(null)} title={sheet?.weekday}>
-        <SheetRow
-          label="Ask the assistant"
-          onPress={() => askAssistant(sheet!.title
-            ? `Change ${sheet!.weekday} ${sheet!.iso} — it's currently ${sheet!.title}.`
-            : `Plan ${sheet!.weekday} ${sheet!.iso} for me.`)}
-        />
+      <Sheet visible={sheetMeal !== null} onClose={() => setSheetMeal(null)} title={sheetWeekday}>
+        {sheetItem && (
+          <View style={styles.servingsRow}>
+            <Text variant="body">Cooking for</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity
+                style={styles.stepperBtn}
+                onPress={() => setServings(sheetItem, sheetServings - 1)}
+                accessibilityRole="button"
+                accessibilityLabel="One fewer serving"
+              >
+                <Ionicons name="remove" size={16} color={theme.accent} />
+              </TouchableOpacity>
+              <Text variant="title">{sheetServings}</Text>
+              <TouchableOpacity
+                style={styles.stepperBtn}
+                onPress={() => setServings(sheetItem, sheetServings + 1)}
+                accessibilityRole="button"
+                accessibilityLabel="One more serving"
+              >
+                <Ionicons name="add" size={16} color={theme.accent} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+        {sheetMeal && (
+          <SheetRow
+            label="Ask the assistant"
+            onPress={() => askAssistant(
+              `Change ${sheetWeekday} ${sheetMeal.item.planned_on} ${sheetMeal.slot} — it's currently ${sheetMeal.title}.`)}
+          />
+        )}
         {sheetItem && <SheetRow label="Clear" destructive onPress={() => clear(sheetItem)} />}
       </Sheet>
 
+      {/* Which meal the new dish is — asked only when adding a second one, since the
+          empty card and Swap already know the slot they mean. */}
+      <Sheet visible={slotChoiceDay !== null} onClose={() => setSlotChoiceDay(null)} title="Which meal?">
+        {MEAL_SLOTS.map(slot => (
+          <SheetRow
+            key={slot}
+            label={slot[0].toUpperCase() + slot.slice(1)}
+            onPress={() => {
+              setPicker({ iso: slotChoiceDay!, slot });
+              setSlotChoiceDay(null);
+            }}
+          />
+        ))}
+      </Sheet>
+
       <RecipePickerModal
-        visible={pickerDay !== null}
+        visible={picker !== null}
         recipes={recipes}
         onSelect={assign}
-        onClose={() => setPickerDay(null)}
+        onClose={() => setPicker(null)}
       />
     </View>
   );
@@ -194,6 +254,19 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     justifyContent: 'space-between',
   },
   navButton: { padding: space.xs },
+  servingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: space.sm,
+  },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  stepperBtn: {
+    padding: space.sm,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: t.border,
+  },
   prefsLinkRow: {
     flexDirection: 'row',
     alignItems: 'center',

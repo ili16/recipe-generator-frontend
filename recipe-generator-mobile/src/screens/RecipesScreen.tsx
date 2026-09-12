@@ -205,6 +205,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                   setExpandedId(prev => (prev === recipe.id ? null : prev));
                 }
               }}
+              onToggleShare={() => lib.toggleShare(recipe)}
               onVote={v => lib.vote(recipe, v)}
               ensureStructured={lib.ensureStructured}
               onSaveEdit={doc => lib.saveEdit(recipe.id, doc)}

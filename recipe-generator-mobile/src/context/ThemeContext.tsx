@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { useColorScheme } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../constants';
 import { darkTheme, lightTheme, Theme } from '../theme';
@@ -43,9 +43,20 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const isDark = mode === 'system' ? scheme !== 'light' : mode === 'dark';
+  const theme = isDark ? darkTheme : lightTheme;
+
+  // Web: `#root` is only as tall as the visual viewport (see `public/index.html`), so when iOS
+  // Safari shrinks that for the keyboard, the strip left underneath is the *body* — which was
+  // unpainted, i.e. white, under a dark app. Paint it with the app background instead. Also
+  // fixes the white overscroll flash at the top and bottom of the page.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    document.body.style.backgroundColor = theme.bg;
+    document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+  }, [theme.bg, isDark]);
 
   return (
-    <ThemeContext.Provider value={{ theme: isDark ? darkTheme : lightTheme, mode, isDark, setMode }}>
+    <ThemeContext.Provider value={{ theme, mode, isDark, setMode }}>
       {children}
     </ThemeContext.Provider>
   );

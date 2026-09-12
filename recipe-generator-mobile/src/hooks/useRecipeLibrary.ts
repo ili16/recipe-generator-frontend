@@ -3,6 +3,8 @@ import apiService from '../services/apiService';
 import authService from '../services/authService';
 import { Collection, Recipe, RecipeDocument } from '../types';
 import { useAlert } from '../context/AlertContext';
+import * as Clipboard from 'expo-clipboard';
+import { shareUrl } from '../constants';
 import { getCachedRecipes, setCachedRecipes } from '../utils/recipesCache';
 import type { VariantPreview } from '../screens/recipes/RecipePanels';
 
@@ -179,6 +181,29 @@ export function useRecipeLibrary() {
     }
   };
 
+  // Share on: issue (or reuse) the token, put the link on the clipboard, and show it.
+  // Share off: revoke, which kills the link everyone already has (BACKLOG 8.4).
+  const toggleShare = async (recipe: Recipe) => {
+    try {
+      if (recipe.share_token) {
+        if (!(await confirmAction('Stop sharing?', 'Anyone with the existing link will lose access.',
+          { confirmLabel: 'Stop sharing', destructive: true }))) return;
+        await apiService.unshareRecipe(recipe.id);
+        applyRecipes(recipes.map(r => (r.id === recipe.id ? { ...r, share_token: null } : r)));
+        showAlert('Link revoked', 'The shared link no longer works', 'success');
+        return;
+      }
+      const token = await apiService.shareRecipe(recipe.id);
+      applyRecipes(recipes.map(r => (r.id === recipe.id ? { ...r, share_token: token } : r)));
+      const url = shareUrl(token);
+      await Clipboard.setStringAsync(url);
+      showAlert('Link copied', url, 'success');
+    } catch (error) {
+      console.error('Error sharing recipe:', error);
+      showAlert('Error', 'Failed to update sharing', 'error');
+    }
+  };
+
   // Structured doc isn't in the list response - fetch it on demand before editing/refining.
   const ensureStructured = async (recipe: Recipe): Promise<RecipeDocument | null> => {
     if (recipe.structured) return recipe.structured;
@@ -288,7 +313,7 @@ export function useRecipeLibrary() {
     recipes, loading, refreshing, isAuthenticated,
     refresh: () => loadRecipes(true),
     refreshQuietly,
-    remove, vote, ensureStructured, saveEdit, refine, generateVariant, acceptVariant, loadHistory,
+    remove, vote, toggleShare, ensureStructured, saveEdit, refine, generateVariant, acceptVariant, loadHistory,
     trash, loadTrash, restore,
     collections, loadCollections, createCollection, removeCollection, setRecipeCollection,
   };

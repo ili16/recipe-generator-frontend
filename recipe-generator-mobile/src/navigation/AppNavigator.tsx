@@ -1,7 +1,5 @@
 import React from 'react';
-import { TouchableOpacity } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
 import { type } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { useIsDesktopNav } from '../components/ui';
@@ -14,6 +12,7 @@ import PreferencesScreen from '../screens/PreferencesScreen';
 import LoginScreen from '../screens/LoginScreen';
 import CookingModeScreen from '../screens/CookingModeScreen';
 import MealPlanScreen from '../screens/MealPlanScreen';
+import GroceryListScreen from '../screens/GroceryListScreen';
 import { Recipe } from '../types';
 
 export type RootStackParamList = {
@@ -26,6 +25,7 @@ export type RootStackParamList = {
   Preferences: undefined;
   CookingMode: { recipe: Recipe };
   MealPlan: undefined;
+  GroceryList: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -33,34 +33,18 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 // Tab / rail destinations are top-level: the shell is what moves between them, so the stack's
 // back button is noise (and lies about where "back" goes). Sub-screens reached from inside a
 // screen — Preferences, Login, CookingMode — keep theirs.
-const topLevel = { headerBackVisible: false } as const;
+const topLevelWide = { headerBackVisible: false } as const;
 
-/** Only `navigate('Profile')` is needed here; typing it this narrowly avoids an `any`. */
-type ProfileNav = { navigate: (route: 'Profile') => void };
+// On narrow there is no header at all: the tab bar already names the screen, and a 56px bar
+// repeating it costs a third of the composer's height on a phone. `AppShell`'s `TopBar` carries
+// the one thing the header still held — the way into Profile.
+const topLevelNarrow = { headerShown: false } as const;
 
 const AppNavigator: React.FC = () => {
   const { theme } = useTheme();
   const isDesktopNav = useIsDesktopNav();
 
-  // Profile holds logout, Appearance and the way into Preferences. On wide the rail's footer
-  // links to it; on narrow there is no rail and it is not one of the three tabs, so without this
-  // header button it would be unreachable (BACKLOG 5.7). The mockups put an avatar here too.
-  const profileButton = ({ navigation }: { navigation: ProfileNav }) =>
-    isDesktopNav
-      ? topLevel
-      : {
-          ...topLevel,
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Profile')}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Profile"
-            >
-              <Ionicons name="person-circle-outline" size={26} color={theme.subtext} />
-            </TouchableOpacity>
-          ),
-        };
+  const topLevel = isDesktopNav ? topLevelWide : topLevelNarrow;
 
   return (
     <Stack.Navigator
@@ -76,7 +60,7 @@ const AppNavigator: React.FC = () => {
       <Stack.Screen
         name="Chat"
         component={ChatScreen}
-        options={(props) => ({ title: 'Recipe Generator', ...profileButton(props) })}
+        options={{ title: 'Recipe Generator', ...topLevel }}
       />
       <Stack.Screen
         name="Login"
@@ -86,7 +70,7 @@ const AppNavigator: React.FC = () => {
       <Stack.Screen
         name="Recipes"
         component={RecipesScreen}
-        options={(props) => ({ title: 'My Recipes', ...profileButton(props) })}
+        options={{ title: 'My Recipes', ...topLevel }}
       />
       <Stack.Screen
         name="Profile"
@@ -108,7 +92,12 @@ const AppNavigator: React.FC = () => {
       <Stack.Screen
         name="MealPlan"
         component={MealPlanScreen}
-        options={(props) => ({ title: 'Meal Plan', ...profileButton(props) })}
+        options={{ title: 'Meal Plan', ...topLevel }}
+      />
+      <Stack.Screen
+        name="GroceryList"
+        component={GroceryListScreen}
+        options={{ title: 'Grocery List', ...topLevel }}
       />
     </Stack.Navigator>
   );

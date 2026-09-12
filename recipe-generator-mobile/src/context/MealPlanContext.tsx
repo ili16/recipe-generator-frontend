@@ -3,25 +3,30 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../services/apiService';
 import authService from '../services/authService';
 import { mealPlanCacheKeys } from '../constants';
-import { MealPlanItem, Recipe } from '../types';
+import { MealPlanItem, MEAL_SLOTS, Recipe } from '../types';
 import { toISODate, addDays, parseISODate } from '../utils/mealPlanDates';
 
 interface MealPlanContextValue {
-  itemsByDate: Record<string, MealPlanItem>;
+  /** Every meal planned for a date, in the order the day is eaten (BACKLOG 6.4). */
+  itemsByDate: Record<string, MealPlanItem[]>;
   recipes: Recipe[];
   ensureRange: (startISO: string, endISO: string) => void;
   upsertItem: (item: MealPlanItem) => void;
-  removeItem: (plannedOn: string) => void;
+  removeItem: (item: MealPlanItem) => void;
 }
 
 const MealPlanContext = createContext<MealPlanContextValue | null>(null);
+
+// A day reads in the order it is eaten, not in the order things were added to it.
+const sortBySlot = (items: MealPlanItem[]): MealPlanItem[] =>
+  [...items].sort((a, b) => MEAL_SLOTS.indexOf(a.meal_slot) - MEAL_SLOTS.indexOf(b.meal_slot));
 
 // Shared meal-plan data for the Day/Week/Month views: an AsyncStorage-persisted
 // itemsByDate map plus the saved-recipes list, so switching views is a synchronous
 // read of already-known state (no loading spinner) with a background refresh to stay
 // current. Scoped to MealPlanScreen's subtree.
 export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [itemsByDate, setItemsByDate] = useState<Record<string, MealPlanItem>>({});
+  const [itemsByDate, setItemsByDate] = useState<Record<string, MealPlanItem[]>>({});
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const hydrated = useRef(false);
   // Resolved once per mount before anything touches AsyncStorage, so a stale cache read
@@ -56,7 +61,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     })();
   }, []);
 
-  const persistItems = useCallback((next: Record<string, MealPlanItem>) => {
+  const persistItems = useCallback((next: Record<string, MealPlanItem[]>) => {
     if (!userIdRef.current) return;
     AsyncStorage.setItem(mealPlanCacheKeys(userIdRef.current).items, JSON.stringify(next)).catch(() => {});
   }, []);
@@ -65,7 +70,12 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     apiService.getMealPlanWeek(startISO, endISO).then(range => {
       setItemsByDate(prev => {
         const next = { ...prev };
-        const byDate = new Map(range.items.map(it => [it.planned_on, it]));
+        // The API already returns the range sorted by date then slot, so grouping keeps
+        // that order and nothing here has to know what the slot order is.
+        const byDate = new Map<string, MealPlanItem[]>();
+        for (const it of range.items) {
+          byDate.set(it.planned_on, [...(byDate.get(it.planned_on) ?? []), it]);
+        }
         for (let d = parseISODate(startISO); toISODate(d) <= endISO; d = addDays(d, 1)) {
           const iso = toISODate(d);
           const found = byDate.get(iso);
@@ -77,19 +87,24 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     }).catch(error => console.error('Error refreshing meal plan range:', error));
   }, [persistItems]);
 
+  // Mirrors the server's upsert key: the item replaces whatever held its (date, slot),
+  // and the day's other meals stay put.
   const upsertItem = useCallback((item: MealPlanItem) => {
     setItemsByDate(prev => {
-      const next = { ...prev, [item.planned_on]: item };
+      const day = (prev[item.planned_on] ?? []).filter(i => i.meal_slot !== item.meal_slot);
+      const next = { ...prev, [item.planned_on]: sortBySlot([...day, item]) };
       persistItems(next);
       return next;
     });
   }, [persistItems]);
 
-  const removeItem = useCallback((plannedOn: string) => {
+  const removeItem = useCallback((item: MealPlanItem) => {
     setItemsByDate(prev => {
-      if (!(plannedOn in prev)) return prev;
+      const day = prev[item.planned_on];
+      if (!day) return prev;
       const next = { ...prev };
-      delete next[plannedOn];
+      const kept = day.filter(i => i.id !== item.id);
+      if (kept.length) next[item.planned_on] = kept; else delete next[item.planned_on];
       persistItems(next);
       return next;
     });

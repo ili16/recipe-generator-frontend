@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Recipe } from '../../types';
+import { MealPlanItem, MealSlot, Recipe } from '../../types';
 import { Theme, useTheme } from '../../context/ThemeContext';
 import { radius, space } from '../../theme';
 import { Badge, Text } from '../../components/ui';
@@ -11,11 +11,28 @@ import { totalTimeMinutes } from '../../utils/recipeTime';
  * One day of the plan. `DESIGN_SYSTEM.md` §7.4's `DayCard`, declined in 5.8 for want of a second
  * caller and built here because the planner rebuild is that caller.
  *
- * The header bar carries the *kind*, which is the whole point: a repeated dish is either a
- * leftover day or a batch day, and before this it rendered exactly like a freshly cooked one, so
+ * Each meal carries its own *kind*, which is the whole point: a repeated dish is either a
+ * leftover or a batch, and before this it rendered exactly like a freshly cooked one, so
  * a deliberate plan read as a buggy one.
+ *
+ * A day holds a meal per slot since BACKLOG 6.4 — one card, one row per meal, and the slot
+ * name only appears once there is more than dinner to distinguish.
  */
 export type DayKind = 'cook' | 'leftover' | 'batch' | 'empty';
+
+/** One planned meal within a day, already classified by `planDays.ts`. */
+export interface PlannedMeal {
+  item: MealPlanItem;
+  slot: MealSlot;
+  kind: Exclude<DayKind, 'empty'>;
+  /** For a repeat: the weekday whose dish this is. */
+  carriedFrom?: string;
+  title: string;
+  /** Portions wanted that day (BACKLOG 6.2); null falls back to what the recipe yields. */
+  servings?: number | null;
+  /** The saved recipe behind the meal, when the library cache has it. Absent → title only. */
+  recipe?: Recipe;
+}
 
 export interface PlannedDay {
   iso: string;
@@ -23,12 +40,8 @@ export interface PlannedDay {
   dateLabel: string;
   isToday: boolean;
   isPast: boolean;
-  kind: DayKind;
-  /** For a repeat: the weekday whose dish this is. */
-  carriedFrom?: string;
-  title: string | null;
-  /** The saved recipe behind the day, when the library cache has it. Absent → title only. */
-  recipe?: Recipe;
+  /** In the order the day is eaten. Empty means nothing is planned. */
+  meals: PlannedMeal[];
 }
 
 const KIND_LABEL: Record<DayKind, string> = {
@@ -38,34 +51,49 @@ const KIND_LABEL: Record<DayKind, string> = {
   empty: 'Nothing planned',
 };
 
+const SLOT_LABEL: Record<MealSlot, string> = {
+  breakfast: 'Breakfast',
+  lunch: 'Lunch',
+  dinner: 'Dinner',
+  snack: 'Snack',
+};
+
 interface Props {
   day: PlannedDay;
   onCook: (recipe: Recipe) => void;
-  onSwap: () => void;
-  onMore: () => void;
+  /** Choose a recipe for a slot — the empty card and every row's Swap. */
+  onSwap: (slot: MealSlot) => void;
+  onMore: (meal: PlannedMeal) => void;
+  /** Add another meal to a day that already has one (BACKLOG 6.4). */
+  onAdd: () => void;
 }
 
-const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore }) => {
+const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
-  const doc = day.recipe?.structured;
-  const minutes = totalTimeMinutes(doc);
-  const repeat = day.kind === 'leftover' || day.kind === 'batch';
+  const allRepeats = day.meals.length > 0 && day.meals.every(m => m.kind !== 'cook');
 
   // A header per kind, so the week has a shape you can read at a glance instead of seven
   // identical rows. Colour alone never carries it — the badge says the same thing in words.
   const header =
-    day.kind === 'empty' ? { bg: theme.surfaceRaised, fg: theme.muted }
-    : repeat ? { bg: theme.accentFaded, fg: theme.accent }
+    day.meals.length === 0 ? { bg: theme.surfaceRaised, fg: theme.muted }
+    : allRepeats ? { bg: theme.accentFaded, fg: theme.accent }
     : { bg: theme.primaryDeep, fg: theme.onPrimaryDeep };
 
-  if (day.kind === 'empty') {
+  // One meal speaks for the day; several are counted, because no single kind is true of
+  // all of them.
+  const headerLabel =
+    day.meals.length === 0 ? KIND_LABEL.empty
+    : day.meals.length === 1 ? KIND_LABEL[day.meals[0].kind]
+    : `${day.meals.length} meals`;
+
+  if (day.meals.length === 0) {
     // One tap to fill an empty day: the picker, not a sheet that then offers the picker.
     return (
       <TouchableOpacity
         style={[styles.card, day.isPast && styles.past]}
-        onPress={onSwap}
+        onPress={() => onSwap('dinner')}
         accessibilityRole="button"
         accessibilityLabel={`${day.weekday} ${day.dateLabel}, nothing planned. Choose a recipe.`}
       >
@@ -85,64 +113,114 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore }) => {
     <View style={[styles.card, day.isPast && styles.past]}>
       <View style={[styles.header, { backgroundColor: header.bg }]}>
         <DayHeading day={day} color={header.fg} />
-        <Text variant="caption" style={{ color: header.fg }}>{KIND_LABEL[day.kind]}</Text>
+        <Text variant="caption" style={{ color: header.fg }}>{headerLabel}</Text>
       </View>
 
-      <View style={styles.body}>
-        <Text variant="title" numberOfLines={2}>{day.title}</Text>
+      {day.meals.map((meal, i) => (
+        <MealRow
+          key={meal.item.id}
+          meal={meal}
+          weekday={day.weekday}
+          // The slot name is noise on a day that is just dinner, and the only way to tell
+          // the rows apart once it isn't.
+          showSlot={day.meals.length > 1 || meal.slot !== 'dinner'}
+          divided={i > 0}
+          onCook={onCook}
+          onSwap={onSwap}
+          onMore={onMore}
+        />
+      ))}
 
-        {repeat && (
-          <Text variant="caption" tone="accent">
-            {day.kind === 'leftover'
-              ? `Leftovers from ${day.carriedFrom} — reheat, no cooking`
-              : `Batch cooked on ${day.carriedFrom} — already made`}
-          </Text>
+      <TouchableOpacity
+        style={styles.addRow}
+        onPress={onAdd}
+        accessibilityRole="button"
+        accessibilityLabel={`Add another meal to ${day.weekday}`}
+      >
+        <Ionicons name="add" size={14} color={theme.accent} />
+        <Text variant="label" tone="accent">Add a meal</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+const MealRow: React.FC<{
+  meal: PlannedMeal;
+  weekday: string;
+  showSlot: boolean;
+  divided: boolean;
+  onCook: (recipe: Recipe) => void;
+  onSwap: (slot: MealSlot) => void;
+  onMore: (meal: PlannedMeal) => void;
+}> = ({ meal, weekday, showSlot, divided, onCook, onSwap, onMore }) => {
+  const { theme } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+
+  const doc = meal.recipe?.structured;
+  const minutes = totalTimeMinutes(doc);
+  const repeat = meal.kind !== 'cook';
+
+  return (
+    <View style={[styles.body, divided && styles.divided]}>
+      {showSlot && (
+        <Text variant="caption" tone="muted">
+          {SLOT_LABEL[meal.slot].toUpperCase()}
+          {repeat ? ` · ${KIND_LABEL[meal.kind]}` : ''}
+        </Text>
+      )}
+      <Text variant="title" numberOfLines={2}>{meal.title}</Text>
+
+      {repeat && (
+        <Text variant="caption" tone="accent">
+          {meal.kind === 'leftover'
+            ? `Leftovers from ${meal.carriedFrom} — reheat, no cooking`
+            : `Batch cooked on ${meal.carriedFrom} — already made`}
+        </Text>
+      )}
+
+      {doc?.summary ? (
+        <Text variant="body" tone="subtle" numberOfLines={2}>{doc.summary}</Text>
+      ) : null}
+
+      <View style={styles.badges}>
+        {minutes > 0 && (
+          <Badge
+            tone="neutral"
+            label={repeat ? `${minutes} min when cooked` : `${minutes} min`}
+            icon={<Ionicons name="time-outline" size={12} color={theme.accent} />}
+          />
         )}
+        {(meal.servings ?? doc?.servings) != null && (
+          <Badge
+            tone="neutral"
+            label={meal.servings != null ? `Cooking for ${meal.servings}` : `${doc?.servings} servings`}
+            icon={<Ionicons name="people-outline" size={12} color={theme.accent} />}
+          />
+        )}
+      </View>
 
-        {doc?.summary ? (
-          <Text variant="body" tone="subtle" numberOfLines={2}>{doc.summary}</Text>
-        ) : null}
-
-        <View style={styles.badges}>
-          {minutes > 0 && (
-            <Badge
-              tone="neutral"
-              label={repeat ? `${minutes} min when cooked` : `${minutes} min`}
-              icon={<Ionicons name="time-outline" size={12} color={theme.accent} />}
-            />
-          )}
-          {doc?.servings != null && (
-            <Badge
-              tone="neutral"
-              label={`${doc.servings} servings`}
-              icon={<Ionicons name="people-outline" size={12} color={theme.accent} />}
-            />
-          )}
-        </View>
-
-        <View style={styles.actions}>
-          {/* Cook needs the full recipe, which the library cache may not hold yet for a recipe
-              saved elsewhere this session. No recipe, no button — rather than a button that
-              fails. */}
-          {day.recipe && !repeat && (
-            <TouchableOpacity style={styles.cookBtn} onPress={() => onCook(day.recipe!)} accessibilityRole="button">
-              <Ionicons name="flame-outline" size={14} color={theme.onAccent} />
-              <Text variant="label" style={{ color: theme.onAccent }}>Start cooking</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.ghostBtn} onPress={onSwap} accessibilityRole="button">
-            <Ionicons name="swap-horizontal" size={14} color={theme.accent} />
-            <Text variant="label" tone="accent">Swap</Text>
+      <View style={styles.actions}>
+        {/* Cook needs the full recipe, which the library cache may not hold yet for a recipe
+            saved elsewhere this session. No recipe, no button — rather than a button that
+            fails. */}
+        {meal.recipe && !repeat && (
+          <TouchableOpacity style={styles.cookBtn} onPress={() => onCook(meal.recipe!)} accessibilityRole="button">
+            <Ionicons name="flame-outline" size={14} color={theme.onAccent} />
+            <Text variant="label" style={{ color: theme.onAccent }}>Start cooking</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.ghostBtn}
-            onPress={onMore}
-            accessibilityRole="button"
-            accessibilityLabel={`More options for ${day.weekday}`}
-          >
-            <Ionicons name="ellipsis-horizontal" size={16} color={theme.subtext} />
-          </TouchableOpacity>
-        </View>
+        )}
+        <TouchableOpacity style={styles.ghostBtn} onPress={() => onSwap(meal.slot)} accessibilityRole="button">
+          <Ionicons name="swap-horizontal" size={14} color={theme.accent} />
+          <Text variant="label" tone="accent">Swap</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.ghostBtn}
+          onPress={() => onMore(meal)}
+          accessibilityRole="button"
+          accessibilityLabel={`More options for ${weekday} ${SLOT_LABEL[meal.slot].toLowerCase()}`}
+        >
+          <Ionicons name="ellipsis-horizontal" size={16} color={theme.subtext} />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -175,6 +253,12 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     paddingVertical: space.sm,
   },
   body: { padding: space.md, gap: space.sm },
+  divided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border },
+  addRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs,
+    paddingVertical: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border,
+  },
   emptyBody: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
   actions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs },

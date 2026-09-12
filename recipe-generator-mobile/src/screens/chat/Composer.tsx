@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ActivityIndicator, Image, Platform, StyleSheet,
+  View, TextInput, TouchableOpacity, ActivityIndicator, Image, Platform, StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -100,32 +100,25 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
 
   return (
     <View style={styles.wrap}>
-      {images.length > 0 && (
-        <View style={styles.attachments}>
-          {images.map((image, i) => (
-            <View key={i} style={styles.thumbWrap}>
-              <Image source={{ uri: image.uri }} style={styles.thumb} />
-              <TouchableOpacity
-                style={styles.thumbRemove}
-                accessibilityLabel="Remove photo"
-                onPress={() => setImages(prev => prev.filter((_, j) => j !== i))}
-              >
-                <Ionicons name="close" size={13} color={theme.onAccent} />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <View style={styles.row}>
-        <TouchableOpacity style={styles.iconBtn} onPress={pickImage} accessibilityLabel="Attach a photo">
-          <Ionicons name="image-outline" size={21} color={theme.subtext} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtn} onPress={voice.toggle} accessibilityLabel="Dictate">
-          {transcribing
-            ? <ActivityIndicator size="small" color={theme.subtext} />
-            : <Ionicons name="mic-outline" size={21} color={voice.isRecording ? theme.accent : theme.subtext} />}
-        </TouchableOpacity>
+      {/* One box: the text owns the full width on its own line, the buttons sit under it. A row
+          of icons beside the field cost it ~90px of the screen and clipped what you were typing. */}
+      <View style={styles.box}>
+        {images.length > 0 && (
+          <View style={styles.attachments}>
+            {images.map((image, i) => (
+              <View key={i} style={styles.thumbWrap}>
+                <Image source={{ uri: image.uri }} style={styles.thumb} />
+                <TouchableOpacity
+                  style={styles.thumbRemove}
+                  accessibilityLabel="Remove photo"
+                  onPress={() => setImages(prev => prev.filter((_, j) => j !== i))}
+                >
+                  <Ionicons name="close" size={13} color={theme.onAccent} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
 
         <TextInput
           style={styles.input}
@@ -134,6 +127,9 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
           placeholder="Ask for a recipe, a change, or a week…"
           placeholderTextColor={theme.muted}
           multiline
+          // Without these, Safari/iOS offers passwords, cards and addresses over a prose field.
+          autoComplete="off"
+          textContentType="none"
           onSubmitEditing={submit}
           blurOnSubmit={false}
           onKeyPress={(e) => {
@@ -146,17 +142,28 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
           }}
         />
 
-        <TouchableOpacity
-          style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
-          onPress={submit}
-          disabled={!canSend}
-          accessibilityLabel="Send"
-        >
-          {sending ? <ActivityIndicator size="small" color={theme.onAccent} /> : <Ionicons name="arrow-up" size={20} color={theme.onAccent} />}
-        </TouchableOpacity>
-      </View>
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.iconBtn} onPress={pickImage} accessibilityLabel="Attach a photo">
+            <Ionicons name="image-outline" size={20} color={theme.subtext} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn} onPress={voice.toggle} accessibilityLabel="Dictate">
+            {transcribing
+              ? <ActivityIndicator size="small" color={theme.subtext} />
+              : <Ionicons name="mic-outline" size={20} color={voice.isRecording ? theme.accent : theme.subtext} />}
+          </TouchableOpacity>
 
-      <Text style={styles.hint}>describe a dish · paste a link or a photo · use voice</Text>
+          <View style={styles.spacer} />
+
+          <TouchableOpacity
+            style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
+            onPress={submit}
+            disabled={!canSend}
+            accessibilityLabel="Send"
+          >
+            {sending ? <ActivityIndicator size="small" color={theme.onAccent} /> : <Ionicons name="arrow-up" size={18} color={theme.onAccent} />}
+          </TouchableOpacity>
+        </View>
+      </View>
 
       <VoiceOverlay voice={voice} />
     </View>
@@ -164,19 +171,23 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
 };
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  wrap: { padding: 12, gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border, backgroundColor: t.bg },
-  attachments: { flexDirection: 'row', gap: 8 },
+  wrap: { paddingHorizontal: 10, paddingVertical: 8, backgroundColor: t.bg },
+  box: { backgroundColor: t.surfaceRaised, borderWidth: 1, borderColor: t.border, borderRadius: 20, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6, gap: 4 },
+
+  attachments: { flexDirection: 'row', gap: 8, paddingBottom: 4 },
   thumbWrap: { width: 56, height: 56 },
   thumb: { width: 56, height: 56, borderRadius: 10, borderWidth: 1, borderColor: t.border },
   thumbRemove: { position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: 10, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' },
 
-  row: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
-  iconBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
-  input: { flex: 1, maxHeight: 120, minHeight: 44, color: t.text, ...type.body, backgroundColor: t.surfaceRaised, borderWidth: 1, borderColor: t.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11 },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' },
+  // No background or border of its own: the box around it is the field.
+  input: { maxHeight: 160, minHeight: 24, color: t.text, ...type.body, paddingHorizontal: 2, paddingVertical: 0, ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null) },
+
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  spacer: { flex: 1 },
+  iconBtn: { width: 30, height: 30, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  sendBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' },
   sendBtnOff: { opacity: 0.4 },
 
-  hint: { ...type.caption, fontSize: 11, color: t.muted, letterSpacing: 0.4, textAlign: 'center' },
 });
 
 export default Composer;

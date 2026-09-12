@@ -18,6 +18,12 @@ export interface Recipe {
   servings?: number | null;
   total_minutes?: number | null;
   created_at?: string;
+  // When the user last marked this cooked (BACKLOG 6.3). Absent = never. Recently
+  // cooked recipes are held back from meal-plan suggestions server-side.
+  last_cooked_at?: string | null;
+  // The read-only share link's token (BACKLOG 8.4), or absent when not shared.
+  // Owner-only: the public read never carries it.
+  share_token?: string | null;
   // Set only on the trash listing (GET /recipes/trash); absent everywhere else.
   deleted_at?: string;
 }
@@ -60,6 +66,9 @@ export interface RecipeDocument {
     quantity_text?: string | null;
     unit?: string | null;
     optional: boolean;
+    // Shopping aisle, emitted by the generation call for the grocery list (BACKLOG
+    // 6.1). Absent on anything generated before it.
+    category?: GroceryCategory | null;
   }>;
   steps: Array<{
     sort_order: number;
@@ -145,13 +154,45 @@ export interface UserPreferences {
 
 export type GenerateMethod = 'description' | 'link' | 'image' | 'voice';
 
-// GET /meal-plan - one recipe assigned to one day (and time) of a meal plan.
+// Which meal of the day a plan item fills. A day holds at most one item per slot
+// (BACKLOG 6.4); anything that doesn't say is a dinner.
+export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+// The order a day is eaten, which is the order the API returns and the UI renders.
+export const MEAL_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+// GET /meal-plan - one recipe assigned to one slot of one day (and time) of a meal plan.
 export interface MealPlanItem {
   id: number;
   recipe_id: number;
   recipe_title: string;
   planned_on: string; // YYYY-MM-DD
   start_time: string; // HH:MM:SS
+  meal_slot: MealSlot;
+  // Portions wanted that day (BACKLOG 6.2). Absent means "as the recipe is written";
+  // when set it scales that day's grocery quantities server-side.
+  servings?: number | null;
+}
+
+// The shopping aisles a grocery line groups under, mirroring model.GroceryCategories.
+export type GroceryCategory = 'produce' | 'protein' | 'dairy' | 'pantry' | 'other';
+
+// One shopping line: an item summed across every meal in the week that needs it
+// (GET /grocery-list). `note` carries amounts that could not be summed ("to taste");
+// `for` names the meals the line serves, so dropping a meal means dropping its lines.
+export interface GroceryLine {
+  item: string;
+  category: GroceryCategory;
+  quantity?: number | null;
+  unit?: string | null;
+  note?: string;
+  for: string[];
+}
+
+export interface GroceryList {
+  starts_on: string; // YYYY-MM-DD
+  ends_on: string; // YYYY-MM-DD
+  lines: GroceryLine[];
 }
 
 export interface MealPlanWeek {
@@ -168,6 +209,7 @@ export interface MealPlanAssignment {
   variant_of_recipe_id: number | null;
   planned_on: string; // YYYY-MM-DD
   start_time: string; // HH:MM:SS
+  servings: number | null;
 }
 
 export interface MealPlanSuggestion {

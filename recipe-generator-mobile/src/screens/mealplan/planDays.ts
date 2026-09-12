@@ -1,6 +1,6 @@
 import type { MealPlanItem, Recipe, Weekday } from '../../types';
 import { addDays, toISODate, weekdayName } from '../../utils/mealPlanDates';
-import type { DayKind, PlannedDay } from './DayCard';
+import type { PlannedDay, PlannedMeal } from './DayCard';
 
 /**
  * Turn seven dates plus the plan cache into what the week view renders.
@@ -12,51 +12,67 @@ import type { DayKind, PlannedDay } from './DayCard';
  * planner used to render a carried-forward day exactly like a freshly cooked one and the plan
  * looked broken rather than deliberate.
  *
- * The signal is "same `recipe_id` as the previous day", which needs no API change. Which *kind*
- * of repeat it is comes from the user's own `meal_plan_no_cook_days`.
+ * The signal is "the day before held this same `recipe_id`", which needs no API change. Which
+ * *kind* of repeat it is comes from the user's own `meal_plan_no_cook_days`.
  *
- * `priorItem` is the day *before* the window — a Monday can carry Sunday's dish forward, and
+ * A day holds a meal per slot since BACKLOG 6.4, so the repeat question is asked **per dish**
+ * rather than per day: Tuesday's lunch can be Monday's leftovers while Tuesday's dinner is
+ * freshly cooked.
+ *
+ * `priorDay` is the day *before* the window — a Monday can carry Sunday's dish forward, and
  * without it the first day of every week mislabels itself as freshly cooked.
  */
 export function buildWeek(args: {
   weekStart: Date;
   today: Date;
-  itemsByDate: Record<string, MealPlanItem>;
-  priorItem: MealPlanItem | null;
+  itemsByDate: Record<string, MealPlanItem[]>;
+  priorDay: MealPlanItem[];
   recipesById: Record<number, Recipe>;
   noCookDays: Weekday[];
 }): PlannedDay[] {
-  const { weekStart, today, itemsByDate, priorItem, recipesById, noCookDays } = args;
+  const { weekStart, today, itemsByDate, priorDay, recipesById, noCookDays } = args;
   const todayISO = toISODate(today);
 
-  let previous: MealPlanItem | null = priorItem;
-  // The day whose cooking a run of repeats traces back to. Only a genuinely cooked day
-  // advances it, so Wednesday-after-two-leftover-days still says "from Monday".
-  let lastCookedWeekday: string | null =
-    priorItem ? weekdayLabel(priorItem.planned_on) : null;
+  let previousIDs = new Set(priorDay.map(i => i.recipe_id));
+  // recipe id → the weekday whose cooking a run of repeats traces back to. Only a
+  // genuinely cooked day writes it, so Wednesday-after-two-leftover-days still says
+  // "from Monday", and a dish dropped for a day is cooked afresh when it returns.
+  let cookedOn: Record<number, string> = {};
+  for (const item of priorDay) cookedOn[item.recipe_id] = weekdayLabel(item.planned_on);
 
   return Array.from({ length: 7 }, (_, i) => {
     const date = addDays(weekStart, i);
     const iso = toISODate(date);
-    const item = itemsByDate[iso] ?? null;
+    const items = itemsByDate[iso] ?? [];
     const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
+    const isNoCookDay = noCookDays.includes(weekdayName(date));
 
-    let kind: DayKind = 'empty';
-    let carriedFrom: string | undefined;
+    // The same dish twice in one day (a lunch of last night's dinner, say) is a repeat
+    // too — the earlier slot is the cook, the later one is carried.
+    const servedToday = new Set<number>();
+    const meals: PlannedMeal[] = items.map(item => {
+      const repeats = previousIDs.has(item.recipe_id) || servedToday.has(item.recipe_id);
+      servedToday.add(item.recipe_id);
+      const carriedFrom = repeats ? cookedOn[item.recipe_id] : undefined;
+      if (carriedFrom === undefined) cookedOn[item.recipe_id] = weekday;
+      return {
+        item,
+        slot: item.meal_slot,
+        kind: carriedFrom === undefined ? 'cook' : isNoCookDay ? 'leftover' : 'batch',
+        carriedFrom,
+        title: item.recipe_title,
+        servings: item.servings ?? null,
+        recipe: recipesById[item.recipe_id],
+      };
+    });
 
-    if (item) {
-      const repeats = previous != null && previous.recipe_id === item.recipe_id;
-      if (repeats) {
-        kind = noCookDays.includes(weekdayName(date)) ? 'leftover' : 'batch';
-        carriedFrom = lastCookedWeekday ?? undefined;
-      } else {
-        kind = 'cook';
-        lastCookedWeekday = weekday;
-      }
-    }
-    // An empty day breaks the chain: nothing was cooked, and nothing carried forward.
-    previous = item;
-    if (!item) lastCookedWeekday = null;
+    // A dish absent today breaks its chain: served again later it was cooked again, not
+    // carried forward.
+    const todayIDs = new Set(items.map(m => m.recipe_id));
+    cookedOn = Object.fromEntries(
+      Object.entries(cookedOn).filter(([id]) => todayIDs.has(Number(id))),
+    );
+    previousIDs = todayIDs;
 
     return {
       iso,
@@ -64,10 +80,7 @@ export function buildWeek(args: {
       dateLabel: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
       isToday: iso === todayISO,
       isPast: iso < todayISO,
-      kind,
-      carriedFrom,
-      title: item?.recipe_title ?? null,
-      recipe: item ? recipesById[item.recipe_id] : undefined,
+      meals,
     };
   });
 }

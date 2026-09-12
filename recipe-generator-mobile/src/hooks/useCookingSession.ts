@@ -38,8 +38,16 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
 
   const next = (pendingNote?: string) => {
     if (pendingNote?.trim()) setNote(currentStep, pendingNote);
-    if (currentStep < steps.length - 1) setCurrentStep(prev => prev + 1);
-    else setPhase('done');
+    if (currentStep < steps.length - 1) {
+      setCurrentStep(prev => prev + 1);
+      return;
+    }
+    // Walking off the last step is the one moment we know for certain the recipe was
+    // cooked, so it marks itself — no second tap (BACKLOG 8.5, signal from 6.3).
+    // Abandoning part-way exits through onClose and never gets here. Fire-and-forget:
+    // a failed mark costs a suggestion cooldown, not the user's cooking session.
+    setPhase('done');
+    apiService.markCooked(recipe.id).catch(() => {});
   };
 
   const prev = () => setCurrentStep(p => (p > 0 ? p - 1 : p));

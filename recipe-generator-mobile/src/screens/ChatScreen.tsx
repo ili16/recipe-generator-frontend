@@ -294,10 +294,10 @@ const ArtifactCard: React.FC<{ artifact: ChatArtifact } & Omit<TurnProps, 'messa
 const makeStyles = (t: Theme) => StyleSheet.create({
   root: { flex: 1, backgroundColor: t.bg },
   thread: { flex: 1 },
-  threadContent: { padding: 16, paddingBottom: 8, gap: 14 },
+  threadContent: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4, gap: 12 },
   wide: { maxWidth: layout.contentMaxWidth, width: '100%', alignSelf: 'center' },
 
-  empty: { paddingVertical: 48, gap: 10 },
+  empty: { paddingVertical: 12, gap: 8 },
   emptyTitle: { ...type.title, fontSize: 22, lineHeight: 30, color: t.text, marginBottom: 8 },
   opener: { backgroundColor: t.surfaceRaised, borderWidth: 1, borderColor: t.border, borderRadius: 12, padding: 12 },
   openerText: { color: t.subtext, ...type.body, fontSize: 14 },

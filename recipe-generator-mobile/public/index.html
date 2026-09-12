@@ -12,6 +12,12 @@
       body {
         height: 100%;
       }
+      /* Painted before any JS runs so the first frame, and the strip left under `#root` when
+         the keyboard shrinks the viewport, are never white under a dark app. `ThemeContext`
+         takes over once it knows the real mode (system / light / dark). */
+      html { color-scheme: light dark; }
+      body { background-color: #F9F6F0; }
+      @media (prefers-color-scheme: dark) { body { background-color: #1A1816; } }
       /* These styles disable body scrolling if you are using <ScrollView> */
       body {
         overflow: hidden;
