@@ -25,6 +25,12 @@ export interface Recipe {
   // counts. Both 0 — or absent, on a payload from before 7.3 — means no badge.
   pantry_have?: number;
   pantry_total?: number;
+  // A household's shared library (BACKLOG 15.3). A recipe is personal property lent to
+  // the household: everyone can open, cook and plan it, only the owner can rewrite it.
+  // `owned_by_me` is false only for another member's recipe — outside a household every
+  // visible recipe is the caller's, and `owner_name` goes unused.
+  owned_by_me?: boolean;
+  owner_name?: string;
   created_at?: string;
   // When the user last marked this cooked (BACKLOG 6.3). Absent = never. Recently
   // cooked recipes are held back from meal-plan suggestions server-side.
@@ -206,6 +212,24 @@ export interface MealPlanItem {
 // Where a pantry item lives, mirroring model.PantryCategories (BACKLOG 7.1).
 export type PantryCategory = 'fridge' | 'freezer' | 'produce' | 'spices_dry';
 
+// A household: a closed group sharing one kitchen (BACKLOG 15.1) — one pantry, one week,
+// one grocery list, and a library everyone can cook from. `join_code` is the credential
+// and is rotatable, so a member who leaves does not keep a working key.
+export interface Household {
+  id: string;
+  name: string;
+  join_code: string;
+  members: HouseholdMember[];
+}
+
+// There are no roles and no admin, so a member is only ever who they are.
+export interface HouseholdMember {
+  id: number;
+  name: string;
+  email: string;
+  is_me: boolean;
+}
+
 // One thing the user has in the house (GET /pantry). `name` and `unit` come back
 // normalised by the server — lowercased, and kg/l folded into g/ml — which is what lets a
 // pantry item be compared with a recipe's ingredient at all (BACKLOG 7.1).
@@ -270,6 +294,18 @@ export type ChatArtifact =
   | { kind: 'recipe'; data: { draft_ref?: string; recipe_id?: number; document: RecipeDocument } }
   | { kind: 'week_plan'; data: { starts_on: string; ends_on: string; plan: MealPlanSuggestion } };
 
+// A mutating tool call the agent wants to make, held until the user approves it
+// (BACKLOG.md 10.2). `args` is the tool's own JSON, rendered per tool; `replaces` is what
+// is already planned on the days it would write, read server-side before anything ran.
+export interface ChatApproval {
+  id: string;
+  name: string;
+  args: string;
+  replaces?: { date: string; meal_slot: string; current_recipe: string }[];
+  /** Set once answered, so the card renders its outcome instead of its buttons. */
+  decision?: 'approved' | 'declined';
+}
+
 // What the composer can hang on a turn. An image travels inline as a data URL or bare
 // base64 — /chat is JSON, and the server sniffs the bytes before they reach the model.
 export type ChatAttachment =
@@ -282,6 +318,7 @@ export type ChatStreamEvent =
   | { type: 'tool_start'; payload: { name: string; args: string } }
   | { type: 'tool_end'; payload: { name: string; ok: boolean } }
   | { type: 'artifact'; payload: ChatArtifact }
+  | { type: 'approval_request'; payload: ChatApproval }
   | { type: 'done'; payload: { conversation_id: string } };
 
 // What the agent is extracting from, read off the tool call's own arguments and shown
@@ -303,6 +340,10 @@ export interface ChatMessage {
   sources?: ChatSource[];
   artifacts?: ChatArtifact[];
   error?: string;
+  /** The user pressed Stop mid-turn (BACKLOG.md 10.1); whatever arrived is kept. */
+  stopped?: boolean;
+  /** The write this turn is waiting on the user to approve (BACKLOG.md 10.2). */
+  approval?: ChatApproval;
 }
 
 /* ── Feedback (BACKLOG 9.16) ───────────────────────────────────────────────── */

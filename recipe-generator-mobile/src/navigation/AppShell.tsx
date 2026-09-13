@@ -47,7 +47,7 @@ const TabBar: React.FC<{ activeRoute: string; onNavigate: NavigateFn }> = ({ act
             accessibilityLabel={t(item.labelKey)}
           >
             <Ionicons name={item.icon} size={22} color={active ? theme.accent : theme.muted} />
-            <Text variant="caption" tone={active ? 'accent' : 'muted'}>{t(item.labelKey)}</Text>
+            <Text variant="caption" tone={active ? 'accent' : 'muted'} numberOfLines={1}>{t(item.labelKey)}</Text>
           </TouchableOpacity>
         );
       })}

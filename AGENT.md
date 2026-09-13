@@ -146,7 +146,11 @@ src/
 │   │                             steps.check.ts; 5.4 deleted the two markdown parsers that
 │   │                             used to live here, hence the rename from parse.ts),
 │   │                             styles.ts (chrome)
-│   ├── ProfileScreen.tsx       — user info + logout
+│   ├── ProfileScreen.tsx       — user info + logout; the way into Preferences and Household
+│   ├── HouseholdScreen.tsx     — one shared kitchen (BACKLOG 15.1): create or join by code,
+│   │                             the member list, copy/rotate the code, Leave and Disband.
+│   │                             Two states in one screen; mount + focus reload, because
+│   │                             somebody else joining changes it without this device acting
 │   ├── PreferencesScreen.tsx   — wraps PreferencesPanel
 │   ├── LoginScreen.tsx         — Keycloak login trigger
 │   ├── GroceryListScreen.tsx   — the week's shopping list (BACKLOG 6.1), grouped by aisle.
@@ -190,6 +194,10 @@ src/
     ├── chatArtifacts.ts        — foldArtifact(): keys recipe artifacts by draft_ref across the
     │                             whole thread, so a save updates the card instead of adding one
     │                             (chatArtifacts.check.ts is its assert script)
+    ├── chatApproval.ts         — describeApproval(): what a pending write does, read off the
+    │                             gated tool call's own args (10.2). Picks a catalog key rather
+    │                             than writing a sentence — the summary has to exist in every
+    │                             language (chatApproval.check.ts is its assert script)
     ├── feedbackPrompt.ts       — WHEN to show the pulse card (9.16). Pure, no imports, so
     │                             feedbackPrompt.check.ts runs under plain node. The numbers
     │                             are published vendor/platform defaults — the file says which
@@ -248,6 +256,12 @@ Do not bypass this pattern when adding new authenticated calls.
 | POST | `meal-plan/items/:id/covers` | `{days: string[], servings?}` — the **complete** set of days this pot covers, so a shorter list is the undo | required | `MealPlanItem[]` — the cook plus its leftovers, written in one transaction (BACKLOG 9.13) |
 | DELETE | `meal-plan/items/:id` | — | required | `204` |
 | POST | `meal-plan/variants/:recipe_id` | `{hint?}` | required* | `RecipeResponse & {variant_of_recipe_id}` — unsaved; persist via `add-recipe` |
+| GET | `household` | — | required | `Household` — or **204** when the caller is in none, which is a normal state and renders the create/join form (BACKLOG 15.1) |
+| POST | `household` | `{name}` | required | `Household` (201). `409` if already in one |
+| POST | `household/join` | `{join_code}` | required | `Household`. `404` for a code that does not resolve — wrong and rotated are indistinguishable |
+| POST | `household/leave` | — | required | `204`. Your recipes and pantry lines come with you; the week stays |
+| POST | `household/code` | — | required | `{join_code}` — rotates it, killing the old one |
+| DELETE | `household` | — | required | `204`. Disband; any member may. Recipes go back to their owners, planned days after today are dropped |
 | GET | `preferences` | — | required | `UserPreferences` |
 | PATCH | `preferences` | full `UserPreferences` (server overwrites, not a merge — always send the complete object) | required | `UserPreferences` |
 
@@ -264,6 +278,14 @@ The backend provisions users just-in-time from the JWT `sub` claim; there is no 
 - `PatchRecipePayload` — PATCH body for manual edits
 - `RecipeVersion` — `{version, change_kind, change_note?, created_at, data}` — one entry from `GET recipes/:id/history`
 - `UserProfile` — `{name, email?, username?}`
+- `Household` / `HouseholdMember` — `{id, name, join_code, members[]}` / `{id, name, email, is_me}`
+  (BACKLOG 15.1). There are no roles and no admin, so a member is only ever who they are. The
+  join code is the whole access mechanism and is rotatable — the same shape as 8.4's share token,
+  with a revoke
+- `Recipe.owned_by_me` / `Recipe.owner_name` — a household's shared library (15.3). A recipe is
+  personal property lent to the household: everyone can cook and plan it, only the owner can
+  rewrite it. **Absent means mine** — outside a household every visible recipe is the caller's,
+  and an older payload must not read as somebody else's
 - `MealPlanItem` — `{id, recipe_id, recipe_title, planned_on, meal_slot, servings?, source_item_id?}`; `MealPlanWeek` — `{starts_on, ends_on, items: MealPlanItem[]}`. `source_item_id` names the item whose pot this meal eats again (BACKLOG 9.11)
 - `UserPreferences` — `{skill_level, dietary_prefs, disliked_ingredients, meal_plan_no_food_days: Weekday[], meal_plan_no_cook_days: Weekday[], meal_plan_batch_days: 1|2|3, week_start_day: Weekday, household_size: number|null}` — the scheduling fields feed the meal-plan AI's system prompt server-side (`no_food_days` skips the day entirely, `no_cook_days` is a "leftover day" that repeats the prior cooked day's dish). Edited in `PreferencesScreen` only — preferences are global, with no per-week scope (BACKLOG 4.4 deleted the override, and `cooking_cadence` with it). The two day lists are mutually exclusive, enforced in `PreferencesPanel` and again by `PATCH /preferences`
 - `MealPlanAssignment` — one proposed day: `{recipe_id, variant, variant_of_recipe_id, planned_on, start_time}` — exactly one of `recipe_id`/`variant` is non-null
@@ -376,6 +398,14 @@ The replacement token set (warm palette, semantic slots, real scales, primitives
 - **Nothing links to `Profile` but the shell** — the wide rail's footer and, on narrow, the
   header-right person icon added by BACKLOG 5.7. It is the only route to logout, Appearance and
   Preferences, so do not remove both.
+- **A household is read-widening, not re-ownership** (BACKLOG 15.3). `RecipeCard` hides Edit,
+  Refine, Share and Delete on a recipe whose `owned_by_me` is `false`, and shows whose it is.
+  Cook, plan, collect, vote and **Create variant** stay — copying is the way a non-owner is meant
+  to get the version they want (15.7). Do not "fix" the missing buttons by re-enabling them: the
+  server returns 404 for those writes.
+- **The grocery list's ticks are still per-device** and per-user (`groceryCheckedKey`), so in a
+  household two people shopping from one list do not see each other's check-offs — BACKLOG 15.9.
+  The list itself *is* shared; only the ticks are not.
 - **The meal planner carries real data-loss bugs** — see `../BACKLOG.md` 0.4, 0.5, 0.6 and Phase 4.
 - **A leftover is stored, not guessed** (BACKLOG 9.11). `MealPlanItem.source_item_id` names the
   item whose pot this meal eats again; `planDays.buildWeek` reads it. Only *leftover vs batch*

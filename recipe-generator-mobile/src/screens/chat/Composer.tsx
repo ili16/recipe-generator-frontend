@@ -28,9 +28,11 @@ export interface PickedImage {
 interface Props {
   sending: boolean;
   onSend: (text: string, attachments: ChatAttachment[]) => void;
+  /** Aborts the turn in flight (BACKLOG.md 10.1). Only reachable while `sending`. */
+  onStop: () => void;
 }
 
-const Composer: React.FC<Props> = ({ sending, onSend }) => {
+const Composer: React.FC<Props> = ({ sending, onSend, onStop }) => {
   const { theme } = useTheme();
   const { showAlert } = useAlert();
   const { t } = useLanguage();
@@ -156,13 +158,15 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
 
           <View style={styles.spacer} />
 
+          {/* One button, two jobs: while a turn runs it stops it rather than sitting
+              there as a spinner you cannot press (BACKLOG.md 10.1). */}
           <TouchableOpacity
-            style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
-            onPress={submit}
-            disabled={!canSend}
-            accessibilityLabel={t('composer.send')}
+            style={[styles.sendBtn, !sending && !canSend && styles.sendBtnOff]}
+            onPress={sending ? onStop : submit}
+            disabled={!sending && !canSend}
+            accessibilityLabel={sending ? t('composer.stop') : t('composer.send')}
           >
-            {sending ? <ActivityIndicator size="small" color={theme.onAccent} /> : <Ionicons name="arrow-up" size={18} color={theme.onAccent} />}
+            <Ionicons name={sending ? 'square' : 'arrow-up'} size={sending ? 13 : 18} color={theme.onAccent} />
           </TouchableOpacity>
         </View>
       </View>

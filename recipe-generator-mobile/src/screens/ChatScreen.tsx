@@ -16,9 +16,10 @@ import { currentLocale } from '../i18n';
 import { parseISODate } from '../utils/mealPlanDates';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { ChatArtifact, ChatAttachment, ChatMessage, ChatSource } from '../types';
+import { ChatApproval, ChatArtifact, ChatAttachment, ChatMessage, ChatSource } from '../types';
 import { hostLabel } from '../utils/recipeOrigin';
 import { foldArtifact } from '../utils/chatArtifacts';
+import { describeApproval } from '../utils/chatApproval';
 import Composer from './chat/Composer';
 import { FeedbackPulse } from '../components/FeedbackPulse';
 
@@ -36,7 +37,7 @@ const NAMED_TOOLS = new Set([
 
 // Server error codes we have words for, under `chat.error.*`.
 const NAMED_ERRORS = new Set([
-  'budget_exceeded', 'conversation_not_found', 'timeout', 'iteration_limit',
+  'budget_exceeded', 'conversation_not_found', 'timeout', 'iteration_limit', 'approval_expired',
 ]);
 
 // The extracting tools carry what they are extracting *from* in their own arguments —
@@ -89,18 +90,14 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   // Abort the in-flight turn on unmount so an abandoned stream stops server-side too.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const send = useCallback(async (text: string, attachments: ChatAttachment[] = []) => {
-    const message = text.trim();
-    if ((!message && attachments.length === 0) || sending) return;
-
-    setSending(true);
-    setMessages((prev) => [
-      ...prev,
-      { role: 'user', text: message, attachmentCount: attachments.length || undefined },
-      { role: 'assistant', text: '' },
-    ]);
-
-    // The assistant turn is always the last message; every event folds into it.
+  // One turn of streaming, shared by sending a message and answering an approval
+  // (BACKLOG.md 10.2): both fold the same events into the assistant bubble the caller has
+  // just appended, which is always the thread's last message.
+  const runTurn = useCallback(async (
+    attachments: ChatAttachment[],
+    message: string,
+    approval?: { id: string; approve: boolean },
+  ) => {
     const patch = (fn: (m: ChatMessage) => ChatMessage) =>
       setMessages((prev) => prev.map((m, i) => (i === prev.length - 1 ? fn(m) : m)));
 
@@ -132,10 +129,18 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             // existing card flips to Saved instead of a second copy appearing below it.
             setMessages((prev) => foldArtifact(prev, event.payload));
             break;
+          case 'approval_request':
+            // The turn ends here and resumes on the answer, so the card lands on this
+            // bubble and the composer is free again.
+            patch((m) => ({ ...m, approval: event.payload }));
+            break;
         }
-      }, controller.signal, attachments);
+      }, controller.signal, attachments, approval);
     } catch (err) {
-      if (!controller.signal.aborted) {
+      if (controller.signal.aborted) {
+        // Stopped on purpose: keep the partial turn, mark it, and say nothing about errors.
+        patch((m) => ({ ...m, stopped: true }));
+      } else {
         const code = err instanceof ApiError ? err.message : '';
         patch((m) => ({ ...m, error: NAMED_ERRORS.has(code) ? t(`chat.error.${code}`) : t('common.unknownError') }));
       }
@@ -144,7 +149,37 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       setSending(false);
       abortRef.current = null;
     }
-  }, [sending, t]);
+  }, [t]);
+
+  const send = useCallback(async (text: string, attachments: ChatAttachment[] = []) => {
+    const message = text.trim();
+    if ((!message && attachments.length === 0) || sending) return;
+
+    setSending(true);
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', text: message, attachmentCount: attachments.length || undefined },
+      { role: 'assistant', text: '' },
+    ]);
+    await runTurn(attachments, message);
+  }, [sending, runTurn]);
+
+  // Answering an approval is a turn with no user message: the decision is the whole input,
+  // and the server resumes the tool call it parked. The card keeps its outcome so the
+  // thread still reads as a history rather than losing what was asked.
+  const decide = useCallback(async (approval: ChatApproval, approve: boolean) => {
+    if (sending) return;
+    setSending(true);
+    setMessages((prev) => [
+      ...prev.map((m) =>
+        m.approval?.id === approval.id
+          ? { ...m, approval: { ...m.approval, decision: approve ? ('approved' as const) : ('declined' as const) } }
+          : m
+      ),
+      { role: 'assistant', text: '' },
+    ]);
+    await runTurn([], '', { id: approval.id, approve });
+  }, [sending, runTurn]);
 
   // Saving a draft the agent wrote, without asking the model to do it again. The server
   // saves through the same idempotent path as the save_recipe tool, so a second tap — or
@@ -226,6 +261,8 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             savingRef={savingRef}
             expiredRefs={expiredRefs}
             onSaveDraft={saveDraft}
+            sending={sending}
+            onDecide={decide}
           />
         ))}
 
@@ -238,7 +275,7 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       </ScrollView>
 
       <View style={isWide ? styles.wide : undefined}>
-        <Composer sending={sending} onSend={send} />
+        <Composer sending={sending} onSend={send} onStop={() => abortRef.current?.abort()} />
       </View>
     </KeyboardAvoidingView>
   );
@@ -257,9 +294,12 @@ interface TurnProps {
   savingRef: string | null;
   expiredRefs: string[];
   onSaveDraft: (draftRef: string) => void;
+  /** A pending write's Apply / Change it (BACKLOG.md 10.2), disabled while a turn runs. */
+  sending: boolean;
+  onDecide: (approval: ChatApproval, approve: boolean) => void;
 }
 
-const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, savingRef, expiredRefs, onSaveDraft, t }) => {
+const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, savingRef, expiredRefs, onSaveDraft, sending, onDecide, t }) => {
   if (message.role === 'user') {
     return (
       <View style={styles.userBubble}>
@@ -292,6 +332,10 @@ const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, savingRef, 
           onSaveDraft={onSaveDraft}
         />
       ))}
+      {message.approval && (
+        <ApprovalCard approval={message.approval} styles={styles} t={t} sending={sending} onDecide={onDecide} />
+      )}
+      {message.stopped && <Text style={styles.stoppedText}>{t('chat.stopped')}</Text>}
       {message.error && (
         <View style={styles.errorBox}>
           <Ionicons name="alert-circle-outline" size={16} color={theme.accent} />
@@ -326,7 +370,71 @@ const SourceCard: React.FC<{ source: ChatSource } & Pick<TurnProps, 'theme' | 's
   </View>
 );
 
-const ArtifactCard: React.FC<{ artifact: ChatArtifact } & Omit<TurnProps, 'message'>> = ({
+// The write the agent is asking to make, shown before it happens (BACKLOG.md 10.2). The
+// approval is structural: nothing has run when this renders, so declining leaves the
+// database exactly as it was rather than needing an undo.
+const ApprovalCard: React.FC<
+  { approval: ChatApproval } & Pick<TurnProps, 'styles' | 't' | 'sending' | 'onDecide'>
+> = ({ approval, styles, t, sending, onDecide }) => {
+  const { key, values } = describeApproval(approval);
+  // The summary carries a raw slot and a raw ISO date because the describer is language
+  // agnostic; both become readable here, where the catalog and the locale are.
+  const readable = {
+    ...values,
+    ...(typeof values.slot === 'string' ? { slot: t(`plan.slot.${values.slot}`) } : {}),
+    ...(typeof values.date === 'string' && values.date
+      ? { date: parseISODate(values.date).toLocaleDateString(currentLocale(), { weekday: 'long', day: 'numeric', month: 'long' }) }
+      : {}),
+  };
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{t('chat.approval.title')}</Text>
+      <Text style={styles.approvalWhat}>{t(`chat.approval.${key}`, readable)}</Text>
+
+      {approval.replaces && approval.replaces.length > 0 && (
+        <>
+          <Text style={styles.draftTag}>{t('chat.approval.replaces')}</Text>
+          {approval.replaces.map((r) => (
+            <View key={`${r.date} ${r.meal_slot}`} style={styles.planRow}>
+              <Text style={styles.planDay}>
+                {parseISODate(r.date).toLocaleDateString(currentLocale(), { weekday: 'short', day: 'numeric', month: 'short' })}
+                {` · ${t(`plan.slot.${r.meal_slot}`)}`}
+              </Text>
+              <Text style={styles.planMeal} numberOfLines={1}>{r.current_recipe}</Text>
+            </View>
+          ))}
+        </>
+      )}
+
+      {approval.decision ? (
+        <Text style={styles.draftTag}>{t(`chat.approval.${approval.decision}`)}</Text>
+      ) : (
+        <View style={styles.approvalActions}>
+          <TouchableOpacity
+            style={styles.approveButton}
+            onPress={() => onDecide(approval, true)}
+            disabled={sending}
+            accessibilityRole="button"
+          >
+            <Text style={styles.approveButtonText}>{t('chat.approval.apply')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.declineButton}
+            onPress={() => onDecide(approval, false)}
+            disabled={sending}
+            accessibilityRole="button"
+          >
+            <Text style={styles.declineButtonText}>{t('chat.approval.change')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+};
+
+const ArtifactCard: React.FC<
+  { artifact: ChatArtifact } & Pick<TurnProps, 'theme' | 'styles' | 'titles' | 'savingRef' | 'expiredRefs' | 'onSaveDraft' | 't'>
+> = ({
   artifact, theme, styles, titles, savingRef, expiredRefs, onSaveDraft, t,
 }) => {
   if (artifact.kind === 'recipe') {
@@ -427,6 +535,15 @@ const makeStyles = (t: Theme) => StyleSheet.create({
 
   working: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   workingText: { ...type.body, fontSize: 13, color: t.muted },
+
+  approvalWhat: { ...type.body, fontSize: 14, color: t.text },
+  approvalActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  approveButton: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full, backgroundColor: t.accent },
+  approveButtonText: { ...type.label, fontSize: 13, color: t.bg },
+  declineButton: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full, borderWidth: 1, borderColor: t.border },
+  declineButtonText: { ...type.label, fontSize: 13, color: t.subtext },
+
+  stoppedText: { ...type.caption, color: t.muted, fontStyle: 'italic' },
 
   errorBox: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   errorText: { ...type.body, fontSize: 13, color: t.accent, flex: 1 },

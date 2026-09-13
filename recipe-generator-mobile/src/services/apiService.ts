@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload, Household } from '../types';
 import authService from './authService';
 import { currentLocale } from '../i18n';
 
@@ -142,9 +142,15 @@ class ApiService {
     onEvent: (event: ChatStreamEvent) => void,
     signal?: AbortSignal,
     attachments?: ChatAttachment[],
+    /**
+     * Answers an `approval_request` from the previous turn on this thread instead of
+     * sending a message (BACKLOG.md 10.2) — the decision *is* the turn, and the server
+     * resumes the parked tool call from it.
+     */
+    approval?: { id: string; approve: boolean },
   ): Promise<string | null> {
     let conversation = conversationId;
-    const body = { conversation_id: conversationId ?? '', message, attachments, language: currentLocale() };
+    const body = { conversation_id: conversationId ?? '', message, attachments, approval, language: currentLocale() };
 
     if (Platform.OS !== 'web') {
       const { data } = await this.client.post<{ events: { type: string; payload: unknown }[] }>(
@@ -306,6 +312,42 @@ class ApiService {
 
   async deletePantryItem(itemId: number): Promise<void> {
     await this.client.delete(`${API_ENDPOINTS.PANTRY}/${itemId}`);
+  }
+
+  /* ── Households (BACKLOG 15.1) ───────────────────────────────────────────── */
+
+  // null when the caller is in no household — the server answers 204, which is a normal
+  // state and not an error, and the screen renders the create/join form for it.
+  async getHousehold(): Promise<Household | null> {
+    const response = await this.client.get<Household | ''>(API_ENDPOINTS.HOUSEHOLD);
+    return response.status === 204 || !response.data ? null : (response.data as Household);
+  }
+
+  async createHousehold(name: string): Promise<Household> {
+    const response = await this.client.post<Household>(API_ENDPOINTS.HOUSEHOLD, { name });
+    return response.data;
+  }
+
+  // A wrong code and a rotated one both come back 404 — deliberately indistinguishable.
+  async joinHousehold(joinCode: string): Promise<Household> {
+    const response = await this.client.post<Household>(`${API_ENDPOINTS.HOUSEHOLD}/join`, { join_code: joinCode });
+    return response.data;
+  }
+
+  async leaveHousehold(): Promise<void> {
+    await this.client.post(`${API_ENDPOINTS.HOUSEHOLD}/leave`);
+  }
+
+  // Ends it for everyone; any member may. Recipes go back to their owners and planned days
+  // after today are dropped, so the caller has to have confirmed this first.
+  async disbandHousehold(): Promise<void> {
+    await this.client.delete(API_ENDPOINTS.HOUSEHOLD);
+  }
+
+  // The only way to revoke access after somebody leaves.
+  async rotateHouseholdCode(): Promise<string> {
+    const response = await this.client.post<{ join_code: string }>(`${API_ENDPOINTS.HOUSEHOLD}/code`);
+    return response.data.join_code;
   }
 
   /* ── Read-only share link (BACKLOG 8.4) ──────────────────────────────────── */

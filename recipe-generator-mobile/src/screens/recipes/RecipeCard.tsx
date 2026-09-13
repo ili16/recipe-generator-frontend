@@ -63,6 +63,9 @@ const RecipeCard: React.FC<Props> = ({
   const memberOf = collections.filter(c => c.recipe_ids.includes(recipe.id));
   // Absent on a payload from before 7.3 (and on the meal-plan variant preview), so both
   // default to 0 — which is also what "no pantry match to show" looks like.
+  // Outside a household every visible recipe is the caller's, and the server sends no
+  // flag on older payloads — so absent means mine, never "somebody else's".
+  const mine = recipe.owned_by_me !== false;
   const pantryHave = recipe.pantry_have ?? 0;
   const pantryTotal = recipe.pantry_total ?? 0;
   const mealType = mealTypeSlug(recipe.tags);
@@ -179,6 +182,15 @@ const RecipeCard: React.FC<Props> = ({
               {!!recipe.share_token && (
                 <Badge label={t('recipes.shared')} icon={<Ionicons name="link" size={11} color={theme.accent} />} />
               )}
+              {/* Whose recipe this is, shown only when it is not yours — inside a household
+                  the library holds everyone's, and a card with no Edit needs to say why
+                  (BACKLOG 15.3). */}
+              {!mine && (
+                <Badge
+                  label={t('recipes.ownedBy', { name: recipe.owner_name || t('household.unnamedMember') })}
+                  icon={<Ionicons name="people-outline" size={11} color={theme.accent} />}
+                />
+              )}
             </View>
           )}
         </View>
@@ -258,10 +270,17 @@ const RecipeCard: React.FC<Props> = ({
               )}
 
               <View style={s.cardActions}>
+                {/* Cook, plan, collect and vote work on anybody's recipe; editing,
+                    refining, sharing and deleting belong to whoever saved it. A non-owner
+                    who wants it changed copies it — that is the variant button, which is
+                    why it stays. */}
+                {mine && (
                 <TouchableOpacity style={s.cookButton} onPress={startEdit}>
                   <Ionicons name="create-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
                   <Text style={s.cookButtonText}>{t('common.edit')}</Text>
                 </TouchableOpacity>
+                )}
+                {mine && (
                 <TouchableOpacity
                   style={s.cookButton}
                   onPress={() => setPanel(p => (p === 'refine' ? 'none' : 'refine'))}
@@ -269,6 +288,7 @@ const RecipeCard: React.FC<Props> = ({
                   <Ionicons name="sparkles-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
                   <Text style={s.cookButtonText}>{t('recipes.refineWithAi')}</Text>
                 </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={s.cookButton}
                   onPress={() => {
@@ -294,6 +314,7 @@ const RecipeCard: React.FC<Props> = ({
                   <Ionicons name="flame-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
                   <Text style={s.cookButtonText}>{t('recipes.cook')}</Text>
                 </TouchableOpacity>
+                {mine && (
                 <TouchableOpacity style={s.cookButton} onPress={onToggleShare}>
                   <Ionicons
                     name={recipe.share_token ? 'link' : 'link-outline'}
@@ -303,16 +324,19 @@ const RecipeCard: React.FC<Props> = ({
                   />
                   <Text style={s.cookButtonText}>{recipe.share_token ? t('recipes.stopSharing') : t('recipes.shareLink')}</Text>
                 </TouchableOpacity>
+                )}
                 <TouchableOpacity style={s.cookButton} onPress={() => onVote(1)}>
                   <Ionicons name={recipe.my_vote === 1 ? 'thumbs-up' : 'thumbs-up-outline'} size={14} color={theme.accent} />
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cookButton} onPress={() => onVote(-1)}>
                   <Ionicons name={recipe.my_vote === -1 ? 'thumbs-down' : 'thumbs-down-outline'} size={14} color={theme.accent} />
                 </TouchableOpacity>
+                {mine && (
                 <TouchableOpacity style={s.deleteButton} onPress={onDelete}>
                   <Ionicons name="trash-outline" size={14} color={theme.onAccent} style={{ marginRight: 6 }} />
                   <Text style={s.deleteButtonText}>{t('common.delete')}</Text>
                 </TouchableOpacity>
+                )}
               </View>
             </>
           )}

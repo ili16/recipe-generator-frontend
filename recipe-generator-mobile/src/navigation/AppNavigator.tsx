@@ -15,6 +15,7 @@ import CookingModeScreen from '../screens/CookingModeScreen';
 import MealPlanScreen from '../screens/MealPlanScreen';
 import GroceryListScreen from '../screens/GroceryListScreen';
 import PantryScreen from '../screens/PantryScreen';
+import HouseholdScreen from '../screens/HouseholdScreen';
 import { Recipe } from '../types';
 
 export type RootStackParamList = {
@@ -25,6 +26,7 @@ export type RootStackParamList = {
   Recipes: undefined;
   Profile: undefined;
   Preferences: undefined;
+  Household: undefined;
   CookingMode: { recipe: Recipe };
   MealPlan: undefined;
   GroceryList: undefined;
@@ -87,6 +89,11 @@ const AppNavigator: React.FC = () => {
         name="Preferences"
         component={PreferencesScreen}
         options={{ title: t('nav.preferences') }}
+      />
+      <Stack.Screen
+        name="Household"
+        component={HouseholdScreen}
+        options={{ title: t('nav.household') }}
       />
       <Stack.Screen
         name="CookingMode"
