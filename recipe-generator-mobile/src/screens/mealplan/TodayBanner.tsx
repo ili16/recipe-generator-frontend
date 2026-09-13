@@ -3,6 +3,7 @@ import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { useMealPlanContext } from '../../context/MealPlanContext';
 import { toISODate } from '../../utils/mealPlanDates';
 import { totalTimeMinutes } from '../../utils/recipeTime';
@@ -36,6 +37,7 @@ interface Props {
 const TodayBanner: React.FC<Props> = ({ navigation }) => {
   const { itemsByDate, recipes, ensureRange } = useMealPlanContext();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const todayISO = toISODate(new Date());
@@ -56,15 +58,15 @@ const TodayBanner: React.FC<Props> = ({ navigation }) => {
   if (!item) {
     return (
       <View style={styles.hero}>
-        <Text variant="caption" tone="muted">TONIGHT</Text>
-        <Text variant="display">Nothing planned yet</Text>
+        <Text variant="caption" tone="muted">{t('plan.tonight')}</Text>
+        <Text variant="display">{t('plan.nothingPlannedYet')}</Text>
         <TouchableOpacity
           style={styles.cookButton}
-          onPress={() => navigation.navigate('Chat', { prompt: 'What should I cook tonight?' })}
+          onPress={() => navigation.navigate('Chat', { prompt: t('plan.whatToCookPrompt') })}
           accessibilityRole="button"
         >
           <Ionicons name="sparkles" size={16} color={theme.onAccent} />
-          <Text variant="label" style={{ color: theme.onAccent }}>Ask what to cook</Text>
+          <Text variant="label" style={{ color: theme.onAccent }}>{t('plan.askWhatToCook')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -81,13 +83,13 @@ const TodayBanner: React.FC<Props> = ({ navigation }) => {
       <View style={styles.badges}>
         {totalMinutes > 0 && (
           <Badge
-            label={`${totalMinutes} min`}
+            label={t('plan.minutes', { minutes: totalMinutes })}
             icon={<Ionicons name="time-outline" size={12} color={theme.accent} />}
           />
         )}
         {doc?.servings != null && (
           <Badge
-            label={`${doc.servings} servings`}
+            label={t('plan.servingsCount', { count: doc.servings })}
             icon={<Ionicons name="people-outline" size={12} color={theme.accent} />}
           />
         )}
@@ -100,7 +102,7 @@ const TodayBanner: React.FC<Props> = ({ navigation }) => {
           accessibilityRole="button"
         >
           <Ionicons name="flame-outline" size={16} color={theme.onAccent} />
-          <Text variant="label" style={{ color: theme.onAccent }}>Start cooking</Text>
+          <Text variant="label" style={{ color: theme.onAccent }}>{t('plan.startCooking')}</Text>
         </TouchableOpacity>
       )}
     </View>

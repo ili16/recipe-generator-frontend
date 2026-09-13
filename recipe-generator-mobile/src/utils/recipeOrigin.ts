@@ -1,4 +1,5 @@
 import { Recipe } from '../types';
+import { currentLocale } from '../i18n';
 
 // Where a saved recipe came from, in one line (BACKLOG.md 3.7). The columns behind it
 // are written at save time by AddRecipeStructured; nothing rendered them until now.
@@ -15,17 +16,18 @@ export function hostLabel(url: string): string {
 
 export function originLabel(
   recipe: Pick<Recipe, 'source_type' | 'source_url' | 'created_at'>,
+  t: (key: string, options?: Record<string, unknown>) => string,
 ): string | null {
   const from = recipe.source_url
-    ? `From ${hostLabel(recipe.source_url)}`
-    : recipe.source_type === 'image' ? 'From a photo'
-    : recipe.source_type === 'voice' ? 'From a voice note'
-    : recipe.source_type === 'import' ? 'Imported'
+    ? t('origin.fromHost', { host: hostLabel(recipe.source_url) })
+    : recipe.source_type === 'image' ? t('origin.fromPhoto')
+    : recipe.source_type === 'voice' ? t('origin.fromVoice')
+    : recipe.source_type === 'import' ? t('origin.imported')
     : null;
   if (!from) return null;
 
   const when = recipe.created_at ? new Date(recipe.created_at) : null;
   return when && !isNaN(when.getTime())
-    ? `${from} · ${when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
+    ? `${from} · ${when.toLocaleDateString(currentLocale(), { day: 'numeric', month: 'short' })}`
     : from;
 }

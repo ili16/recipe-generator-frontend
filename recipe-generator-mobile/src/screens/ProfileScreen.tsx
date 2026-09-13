@@ -16,6 +16,7 @@ import { type } from '../theme';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { Chip } from '../components/ui';
 import { useAlert } from '../context/AlertContext';
+import { useLanguage, LanguageMode } from '../context/LanguageContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
 
@@ -24,20 +25,39 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const { theme, mode, setMode } = useTheme();
+  const { t, mode: langMode, setMode: setLangMode } = useLanguage();
   const { showAlert } = useAlert();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
 
   const appearance = (
     <View style={styles.field}>
-      <Text style={styles.label}>Appearance</Text>
+      <Text style={styles.label}>{t('profile.appearance')}</Text>
       <View style={styles.modeRow}>
         {(['system', 'light', 'dark'] as ThemeMode[]).map((m) => (
           <Chip
             key={m}
-            label={m === 'system' ? 'System' : m === 'light' ? 'Light' : 'Dark'}
+            label={t(`profile.theme.${m}`)}
             selected={mode === m}
             onPress={() => setMode(m)}
+          />
+        ))}
+      </View>
+    </View>
+  );
+
+  // The two languages name themselves — someone who has landed in the wrong one still has to
+  // recognise their way out.
+  const language = (
+    <View style={styles.field}>
+      <Text style={styles.label}>{t('profile.language')}</Text>
+      <View style={styles.modeRow}>
+        {(['system', 'en', 'de'] as LanguageMode[]).map((m) => (
+          <Chip
+            key={m}
+            label={m === 'system' ? t('profile.theme.system') : m === 'en' ? 'English' : 'Deutsch'}
+            selected={langMode === m}
+            onPress={() => setLangMode(m)}
           />
         ))}
       </View>
@@ -59,7 +79,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Error loading profile:', error);
-      showAlert('Error', 'Failed to load profile', 'error');
+      showAlert(t('common.error'), t('profile.loadFailed'), 'error');
     } finally {
       setLoading(false);
     }
@@ -75,28 +95,29 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       navigation.navigate('Chat');
     } catch (error) {
       console.error('Logout error:', error);
-      showAlert('Error', 'Failed to logout', 'error');
+      showAlert(t('common.error'), t('profile.logoutFailed'), 'error');
     } finally {
       setLoading(false);
     }
   };
 
   if (loading) {
-    return <Loading visible={true} message="Loading..." />;
+    return <Loading visible={true} message={t('common.loading')} />;
   }
 
   if (!isAuthenticated) {
     return (
       <View style={styles.centered}>
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Not Signed In</Text>
-          <Text style={styles.muted}>Sign in to view your profile and save recipes</Text>
+          <Text style={styles.cardTitle}>{t('profile.notSignedIn')}</Text>
+          <Text style={styles.muted}>{t('profile.signInBlurb')}</Text>
           {appearance}
+          {language}
           <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Login')}>
-            <Text style={styles.primaryButtonText}>Sign In</Text>
+            <Text style={styles.primaryButtonText}>{t('nav.login')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Chat')}>
-            <Text style={styles.ghostButtonText}>Continue Without Sign In</Text>
+            <Text style={styles.ghostButtonText}>{t('profile.continueAnonymously')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -106,28 +127,29 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <View style={styles.centered}>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Profile</Text>
+        <Text style={styles.cardTitle}>{t('nav.profile')}</Text>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Name</Text>
+          <Text style={styles.label}>{t('profile.name')}</Text>
           <Text style={styles.value}>{profile?.name || '—'}</Text>
         </View>
 
         {profile?.email ? (
           <View style={styles.field}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t('profile.email')}</Text>
             <Text style={styles.value}>{profile.email}</Text>
           </View>
         ) : null}
 
         {appearance}
+        {language}
 
         <TouchableOpacity style={styles.ghostButton} onPress={() => navigation.navigate('Preferences')}>
-          <Text style={styles.ghostButtonText}>Preferences</Text>
+          <Text style={styles.ghostButtonText}>{t('nav.preferences')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleLogout}>
-          <Text style={styles.primaryButtonText}>Logout</Text>
+          <Text style={styles.primaryButtonText}>{t('profile.logout')}</Text>
         </TouchableOpacity>
       </View>
     </View>

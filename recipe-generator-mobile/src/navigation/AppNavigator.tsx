@@ -2,6 +2,7 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { type } from '../theme';
 import { useTheme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { useIsDesktopNav } from '../components/ui';
 
 // Screens - we'll create these next
@@ -44,6 +45,7 @@ const topLevelNarrow = { headerShown: false } as const;
 
 const AppNavigator: React.FC = () => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const isDesktopNav = useIsDesktopNav();
 
   const topLevel = isDesktopNav ? topLevelWide : topLevelNarrow;
@@ -62,29 +64,29 @@ const AppNavigator: React.FC = () => {
       <Stack.Screen
         name="Chat"
         component={ChatScreen}
-        options={{ title: 'Recipe Generator', ...topLevel }}
+        options={{ title: t('nav.appTitle'), ...topLevel }}
       />
       <Stack.Screen
         name="Login"
         component={LoginScreen}
-        options={{ title: 'Sign In' }}
+        options={{ title: t('nav.login') }}
       />
       <Stack.Screen
         name="Recipes"
         component={RecipesScreen}
-        options={{ title: 'My Recipes', ...topLevel }}
+        options={{ title: t('nav.recipes'), ...topLevel }}
       />
       <Stack.Screen
         name="Profile"
         component={ProfileScreen}
         // Top-level on wide (a rail entry, reset to). On narrow it is *pushed* by the header
         // button above, so it keeps its back arrow — it is not a tab to return from.
-        options={{ title: 'Profile', headerBackVisible: !isDesktopNav }}
+        options={{ title: t('nav.profile'), headerBackVisible: !isDesktopNav }}
       />
       <Stack.Screen
         name="Preferences"
         component={PreferencesScreen}
-        options={{ title: 'Preferences' }}
+        options={{ title: t('nav.preferences') }}
       />
       <Stack.Screen
         name="CookingMode"
@@ -94,17 +96,17 @@ const AppNavigator: React.FC = () => {
       <Stack.Screen
         name="MealPlan"
         component={MealPlanScreen}
-        options={{ title: 'Meal Plan', ...topLevel }}
+        options={{ title: t('nav.mealplan'), ...topLevel }}
       />
       <Stack.Screen
         name="GroceryList"
         component={GroceryListScreen}
-        options={{ title: 'Grocery List', ...topLevel }}
+        options={{ title: t('nav.grocery'), ...topLevel }}
       />
       <Stack.Screen
         name="Pantry"
         component={PantryScreen}
-        options={{ title: 'Pantry', ...topLevel }}
+        options={{ title: t('nav.pantry'), ...topLevel }}
       />
     </Stack.Navigator>
   );

@@ -3,6 +3,7 @@ import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MealPlanItem, MealSlot, MEAL_SLOTS, Recipe } from '../../types';
 import { Theme, useTheme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { radius, space } from '../../theme';
 import { Badge, Text } from '../../components/ui';
 import { totalTimeMinutes } from '../../utils/recipeTime';
@@ -48,19 +49,9 @@ export interface PlannedDay {
   meals: PlannedMeal[];
 }
 
-const KIND_LABEL: Record<DayKind, string> = {
-  cook: 'Cook fresh',
-  leftover: 'No cooking required',
-  batch: 'Batch cooked',
-  empty: 'Nothing planned',
-};
-
-export const SLOT_LABEL: Record<MealSlot, string> = {
-  breakfast: 'Breakfast',
-  lunch: 'Lunch',
-  dinner: 'Dinner',
-  snack: 'Snack',
-};
+// i18n keys rather than words; `WeekView` shares `slotLabelKey`.
+const kindLabelKey = (kind: DayKind) => `plan.kind.${kind}`;
+export const slotLabelKey = (slot: MealSlot) => `plan.slot.${slot}`;
 
 interface Props {
   day: PlannedDay;
@@ -80,6 +71,7 @@ interface Props {
 
 const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd, onClear, householdSize, onScale }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const allRepeats = day.meals.length > 0 && day.meals.every(m => m.kind !== 'cook');
@@ -97,9 +89,9 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd, onClear,
   // One meal speaks for the day; several are counted, because no single kind is true of
   // all of them.
   const headerLabel =
-    day.meals.length === 0 ? KIND_LABEL.empty
-    : day.meals.length === 1 ? KIND_LABEL[day.meals[0].kind]
-    : `${day.meals.length} meals`;
+    day.meals.length === 0 ? t(kindLabelKey('empty'))
+    : day.meals.length === 1 ? t(kindLabelKey(day.meals[0].kind))
+    : t('plan.mealCount', { count: day.meals.length });
 
   if (day.meals.length === 0) {
     // One tap to fill an empty day: the picker, not a sheet that then offers the picker.
@@ -108,15 +100,15 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd, onClear,
         style={[styles.card, day.isPast && styles.past]}
         onPress={() => onSwap('dinner')}
         accessibilityRole="button"
-        accessibilityLabel={`${day.weekday} ${day.dateLabel}, nothing planned. Choose a recipe.`}
+        accessibilityLabel={t('plan.emptyDayA11y', { weekday: day.weekday, date: day.dateLabel })}
       >
         <View style={[styles.header, { backgroundColor: header.bg }]}>
           <DayHeading day={day} color={header.fg} />
-          <Text variant="caption" style={{ color: header.fg }}>{KIND_LABEL.empty}</Text>
+          <Text variant="caption" style={{ color: header.fg }}>{t(kindLabelKey('empty'))}</Text>
         </View>
         <View style={styles.emptyBody}>
           <Ionicons name="add-circle-outline" size={18} color={theme.muted} />
-          <Text variant="body" tone="muted">Pick something for {day.weekday}</Text>
+          <Text variant="body" tone="muted">{t('plan.pickSomethingFor', { weekday: day.weekday })}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -151,10 +143,10 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd, onClear,
         style={styles.addRow}
         onPress={onAdd}
         accessibilityRole="button"
-        accessibilityLabel={`Add another meal to ${day.weekday}`}
+        accessibilityLabel={t('plan.addMealA11y', { weekday: day.weekday })}
       >
         <Ionicons name="add" size={14} color={theme.accent} />
-        <Text variant="label" tone="accent">Add a meal</Text>
+        <Text variant="label" tone="accent">{t('plan.addMeal')}</Text>
       </TouchableOpacity>}
     </View>
   );
@@ -173,6 +165,7 @@ const MealRow: React.FC<{
   onScale: (meal: PlannedMeal, servings: number) => void;
 }> = ({ meal, weekday, showSlot, divided, onCook, onSwap, onMore, onClear, householdSize, onScale }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const doc = meal.recipe?.structured;
@@ -190,17 +183,15 @@ const MealRow: React.FC<{
     <View style={[styles.body, divided && styles.divided]}>
       {showSlot && (
         <Text variant="caption" tone="muted">
-          {SLOT_LABEL[meal.slot].toUpperCase()}
-          {repeat ? ` · ${KIND_LABEL[meal.kind]}` : ''}
+          {t(slotLabelKey(meal.slot)).toUpperCase()}
+          {repeat ? ` · ${t(kindLabelKey(meal.kind))}` : ''}
         </Text>
       )}
       <Text variant="title" numberOfLines={2}>{meal.title}</Text>
 
       {repeat && (
         <Text variant="caption" tone="accent">
-          {meal.kind === 'leftover'
-            ? `Leftovers from ${meal.carriedFrom} — reheat, no cooking`
-            : `Batch cooked on ${meal.carriedFrom} — already made`}
+          {t(meal.kind === 'leftover' ? 'plan.leftoversFrom' : 'plan.batchCookedOn', { day: meal.carriedFrom })}
         </Text>
       )}
 
@@ -215,11 +206,11 @@ const MealRow: React.FC<{
           style={styles.mismatch}
           onPress={() => onScale(meal, needed!)}
           accessibilityRole="button"
-          accessibilityLabel={`Makes ${planned}, cooking for ${needed}. Scale to ${needed}.`}
+          accessibilityLabel={t('plan.scaleA11y', { planned, needed })}
         >
           <Ionicons name="alert-circle-outline" size={14} color={theme.accent} />
           <Text variant="caption" tone="accent">
-            {`Makes ${planned} · cooking for ${needed} — scale it?`}
+            {t('plan.mismatch', { planned, needed })}
           </Text>
         </TouchableOpacity>
       )}
@@ -228,7 +219,7 @@ const MealRow: React.FC<{
         {minutes > 0 && (
           <Badge
             tone="neutral"
-            label={repeat ? `${minutes} min when cooked` : `${minutes} min`}
+            label={t(repeat ? 'plan.minutesWhenCooked' : 'plan.minutes', { minutes })}
             icon={<Ionicons name="time-outline" size={12} color={theme.accent} />}
           />
         )}
@@ -238,14 +229,16 @@ const MealRow: React.FC<{
           meal.portion && (
             <Badge
               tone="neutral"
-              label={`Portion ${meal.portion.index} of ${meal.portion.total}`}
+              label={t('plan.portionOf', { index: meal.portion.index, total: meal.portion.total })}
               icon={<Ionicons name="people-outline" size={12} color={theme.accent} />}
             />
           )
         ) : (meal.servings ?? doc?.servings) != null ? (
           <Badge
             tone="neutral"
-            label={meal.servings != null ? `Cooking for ${meal.servings}` : `${doc?.servings} servings`}
+            label={meal.servings != null
+              ? t('plan.cookingForCount', { count: meal.servings })
+              : t('plan.servingsCount', { count: doc?.servings })}
             icon={<Ionicons name="people-outline" size={12} color={theme.accent} />}
           />
         ) : null}
@@ -261,10 +254,10 @@ const MealRow: React.FC<{
             style={styles.ghostBtn}
             onPress={() => onClear(meal)}
             accessibilityRole="button"
-            accessibilityLabel={`Not eating ${weekday} ${SLOT_LABEL[meal.slot].toLowerCase()}`}
+            accessibilityLabel={t('plan.notEatingA11y', { weekday, slot: t(slotLabelKey(meal.slot)).toLowerCase() })}
           >
             <Ionicons name="close" size={14} color={theme.subtext} />
-            <Text variant="label" tone="subtle">Not eating this</Text>
+            <Text variant="label" tone="subtle">{t('plan.notEatingThis')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -275,18 +268,18 @@ const MealRow: React.FC<{
         {meal.recipe && (
           <TouchableOpacity style={styles.cookBtn} onPress={() => onCook(meal.recipe!)} accessibilityRole="button">
             <Ionicons name="flame-outline" size={14} color={theme.onAccent} />
-            <Text variant="label" style={{ color: theme.onAccent }}>Start cooking</Text>
+            <Text variant="label" style={{ color: theme.onAccent }}>{t('plan.startCooking')}</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity style={styles.ghostBtn} onPress={() => onSwap(meal.slot)} accessibilityRole="button">
           <Ionicons name="swap-horizontal" size={14} color={theme.accent} />
-          <Text variant="label" tone="accent">Swap</Text>
+          <Text variant="label" tone="accent">{t('plan.swap')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.ghostBtn}
           onPress={() => onMore(meal)}
           accessibilityRole="button"
-          accessibilityLabel={`More options for ${weekday} ${SLOT_LABEL[meal.slot].toLowerCase()}`}
+          accessibilityLabel={t('plan.moreOptionsA11y', { weekday, slot: t(slotLabelKey(meal.slot)).toLowerCase() })}
         >
           <Ionicons name="ellipsis-horizontal" size={16} color={theme.subtext} />
         </TouchableOpacity>

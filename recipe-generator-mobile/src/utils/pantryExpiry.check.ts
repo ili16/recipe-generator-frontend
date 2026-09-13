@@ -40,10 +40,12 @@ export function check(): void {
   const dst = new Date(2026, 2, 28, 12, 0); // EU clocks go forward on the 29th
   assert.equal(daysUntil('2026-03-30', dst), 2, 'across a DST change');
 
-  assert.equal(expiryLabel(-2), 'expired');
-  assert.equal(expiryLabel(0), 'today');
-  assert.equal(expiryLabel(1), 'tomorrow');
-  assert.equal(expiryLabel(4), '4 days');
+  // The words come from the catalogs; what this pins is which key each bucket picks.
+  const key = (k: string) => k;
+  assert.equal(expiryLabel(-2, key), 'pantry.expired');
+  assert.equal(expiryLabel(0, key), 'pantry.today');
+  assert.equal(expiryLabel(1, key), 'pantry.tomorrow');
+  assert.equal(expiryLabel(4, key), 'pantry.inDays');
 
   console.log('pantryExpiry.check: all assertions passed');
 }

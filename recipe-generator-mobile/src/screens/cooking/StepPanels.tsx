@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
 import { makeChromeStyles } from './styles';
 
@@ -14,6 +15,7 @@ export const NotePanel: React.FC<{
   onCancel: () => void;
 }> = ({ value, onChange, onSave, onCancel }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   return (
@@ -23,7 +25,7 @@ export const NotePanel: React.FC<{
         style={styles.noteInputField}
         value={value}
         onChangeText={onChange}
-        placeholder="e.g. Used less salt, tasted great"
+        placeholder={t('cooking.notePlaceholder')}
         placeholderTextColor={theme.muted}
         multiline
         autoFocus
@@ -42,6 +44,7 @@ export const NotePanel: React.FC<{
 
 export const SavedNote: React.FC<{ note: string; onEdit: () => void }> = ({ note, onEdit }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   return (
@@ -60,6 +63,7 @@ export const AskAiPanel: React.FC<{
   stepText?: string;
 }> = ({ onAsk, stepText }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const c = useMemo(() => makeChromeStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [question, setQuestion] = useState('');
@@ -73,9 +77,9 @@ export const AskAiPanel: React.FC<{
     setQuestion('');
     try {
       const reply = await onAsk(q, stepText);
-      setExchange(prev => [...prev, { q, a: reply || 'No answer available.' }]);
+      setExchange(prev => [...prev, { q, a: reply || t('cooking.noAnswer') }]);
     } catch {
-      setExchange(prev => [...prev, { q, a: 'Sorry, I could not answer that right now.' }]);
+      setExchange(prev => [...prev, { q, a: t('cooking.askFailed') }]);
     } finally {
       setLoading(false);
     }
@@ -89,7 +93,7 @@ export const AskAiPanel: React.FC<{
           style={styles.aiInputField}
           value={question}
           onChangeText={setQuestion}
-          placeholder="e.g. What if I forgot the eggs?"
+          placeholder={t('cooking.askPlaceholder')}
           placeholderTextColor={theme.muted}
           onSubmitEditing={ask}
           returnKeyType="send"

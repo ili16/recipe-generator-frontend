@@ -2,17 +2,19 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme, useTheme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { type } from '../theme';
 import { VoiceInput } from '../hooks/useVoiceInput';
 
 const VoiceOverlay: React.FC<{ voice: VoiceInput }> = ({ voice }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <Modal visible={voice.isRecording} transparent animationType="fade" onRequestClose={voice.abort} statusBarTranslucent>
       <View style={styles.voiceOverlay}>
-        <Text style={styles.voiceTitle}>Listening…</Text>
-        <Text style={styles.voiceSubtitle}>Speak your recipe idea</Text>
+        <Text style={styles.voiceTitle}>{t('voice.listening')}</Text>
+        <Text style={styles.voiceSubtitle}>{t('voice.subtitle')}</Text>
         <View style={styles.soundbarRow}>
           {voice.soundBars.map((bar, i) => (
             <Animated.View key={i} style={[styles.soundbarBar, {
@@ -26,7 +28,7 @@ const VoiceOverlay: React.FC<{ voice: VoiceInput }> = ({ voice }) => {
           <TouchableOpacity style={styles.voiceAbortBtn} onPress={voice.abort}><Ionicons name="close" size={26} color={theme.onScrim} /></TouchableOpacity>
           <TouchableOpacity style={styles.voiceConfirmBtn} onPress={voice.toggle}><Ionicons name="checkmark" size={26} color={theme.onAccent} /></TouchableOpacity>
         </View>
-        <Text style={styles.voiceHint}>Tap ✕ to cancel · Tap ✓ to transcribe</Text>
+        <Text style={styles.voiceHint}>{t('voice.hint')}</Text>
       </View>
     </Modal>
   );

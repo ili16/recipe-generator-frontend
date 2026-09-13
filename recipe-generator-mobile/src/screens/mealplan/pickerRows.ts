@@ -4,7 +4,7 @@ import { SLOT_TAGS } from '../../constants/tags';
 /** A picker list is recipes plus at most one "Other recipes" divider. */
 export type PickerRow =
   | { kind: 'recipe'; recipe: Recipe }
-  | { kind: 'heading'; label: string };
+  | { kind: 'heading'; labelKey: string };
 
 const tagsOf = (r: Recipe): string[] => r.tags ?? r.structured?.tags ?? [];
 
@@ -29,5 +29,5 @@ export function pickerRows(recipes: Recipe[], slot: MealSlot | undefined, query:
     (tagsOf(r).some(t => wanted.includes(t)) ? likely : rest).push(r);
   }
   if (likely.length === 0 || rest.length === 0) return flat(matching);
-  return [...flat(likely), { kind: 'heading', label: 'Other recipes' }, ...flat(rest)];
+  return [...flat(likely), { kind: 'heading', labelKey: 'plan.otherRecipes' }, ...flat(rest)];
 }

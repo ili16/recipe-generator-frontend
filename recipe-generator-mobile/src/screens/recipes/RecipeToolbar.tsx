@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
-import { TAGS_BY_GROUP, TAG_GROUP_LABELS, TagGroup } from '../../constants/tags';
+import { TAGS_BY_GROUP, tagGroupLabelKey, tagLabelKey, TagGroup } from '../../constants/tags';
 import { makeSharedStyles } from './styles';
 import { Chip } from '../../components/ui';
 import { Collection } from '../../types';
-import { QuickFilter, QUICK_FILTER_LABELS } from './quickFilters';
+import { QuickFilter, QUICK_FILTER_LABEL_KEYS } from './quickFilters';
 
 export type SortMode = 'recent' | 'name';
 
@@ -30,6 +31,7 @@ interface Props {
 const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onToggleTag, sortMode, onToggleSort, trashMode, onToggleTrash,
   collections, activeCollectionId, onSelectCollection, onDeleteCollection, quickFilters, onToggleQuickFilter }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [showFilters, setShowFilters] = useState(false);
@@ -42,7 +44,7 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
           <>
             <TextInput autoComplete="off"
               style={styles.searchInput}
-              placeholder="Search recipes..."
+              placeholder={t('recipes.searchPlaceholder')}
               placeholderTextColor={theme.muted}
               value={search}
               onChangeText={onSearch}
@@ -52,11 +54,11 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
               onPress={() => setShowFilters(v => !v)}
             >
               <Text style={[styles.filterToggleText, (showFilters || selectedTags.size > 0) && styles.filterToggleTextActive]}>
-                Tags{selectedTags.size > 0 ? ` (${selectedTags.size})` : ''}
+                {t('recipes.tags')}{selectedTags.size > 0 ? ` (${selectedTags.size})` : ''}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.sortToggle} onPress={onToggleSort}>
-              <Text style={styles.sortToggleText}>{sortMode === 'recent' ? 'Recent' : 'A–Z'}</Text>
+              <Text style={styles.sortToggleText}>{sortMode === 'recent' ? t('recipes.sortRecent') : t('recipes.sortAlpha')}</Text>
             </TouchableOpacity>
           </>
         )}
@@ -65,7 +67,7 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
           onPress={onToggleTrash}
         >
           <Text style={[styles.sortToggleText, trashMode && styles.filterToggleTextActive]}>
-            {trashMode ? '← Back to recipes' : 'Trash'}
+            {trashMode ? t('recipes.backToRecipes') : t('recipes.trash')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -74,10 +76,10 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
           and unlike collections they combine. */}
       {!trashMode && (
         <View style={[s.tagRow, styles.quickRow]}>
-          {(Object.keys(QUICK_FILTER_LABELS) as QuickFilter[]).map(f => (
+          {(Object.keys(QUICK_FILTER_LABEL_KEYS) as QuickFilter[]).map(f => (
             <Chip
               key={f}
-              label={QUICK_FILTER_LABELS[f]}
+              label={t(QUICK_FILTER_LABEL_KEYS[f])}
               selected={quickFilters.has(f)}
               onPress={() => onToggleQuickFilter(f)}
             />
@@ -90,7 +92,7 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
       {!trashMode && collections.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.collectionRow}>
           <View style={s.tagRow}>
-            <Chip label="All" selected={activeCollectionId === null} onPress={() => onSelectCollection(null)} />
+            <Chip label={t('recipes.allCollections')} selected={activeCollectionId === null} onPress={() => onSelectCollection(null)} />
             {collections.map(c => (
               <Chip
                 key={c.id}
@@ -108,12 +110,12 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
         <ScrollView style={styles.filterPanel} nestedScrollEnabled>
           {(Object.keys(TAGS_BY_GROUP) as TagGroup[]).map(group => (
             <View key={group} style={s.filterGroup}>
-              <Text style={s.filterGroupLabel}>{TAG_GROUP_LABELS[group]}</Text>
+              <Text style={s.filterGroupLabel}>{t(tagGroupLabelKey(group))}</Text>
               <View style={s.tagRow}>
                 {TAGS_BY_GROUP[group].map(tag => (
                   <Chip
                     key={tag.slug}
-                    label={tag.label}
+                    label={t(tagLabelKey(tag.slug))}
                     selected={selectedTags.has(tag.slug)}
                     onPress={() => onToggleTag(tag.slug)}
                   />

@@ -6,6 +6,7 @@ import { fontAssets } from './src/theme';
 import AppShell from './src/navigation/AppShell';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AlertProvider } from './src/context/AlertContext';
+import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
 import authService from './src/services/authService';
 import Loading from './src/components/Loading';
 import SharedRecipeScreen from './src/screens/SharedRecipeScreen';
@@ -24,6 +25,7 @@ const hasPendingWebOAuthCallback =
 
 function Root() {
   const { isDark } = useTheme();
+  const { t } = useLanguage();
   const [authReady, setAuthReady] = useState(!hasPendingWebOAuthCallback);
   // Gate the first render on the brand fonts so nothing flashes in the system face and reflows
   // (BACKLOG 5.6). `error` counts as ready: a failed font download degrades to system fonts, it
@@ -50,7 +52,7 @@ function Root() {
   }
 
   if (!authReady) {
-    return <Loading visible message="Signing in..." />;
+    return <Loading visible message={t('auth.signingIn')} />;
   }
 
   return (
@@ -63,10 +65,12 @@ function Root() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AlertProvider>
-        <Root />
-      </AlertProvider>
-    </ThemeProvider>
+    <LanguageProvider>
+      <ThemeProvider>
+        <AlertProvider>
+          <Root />
+        </AlertProvider>
+      </ThemeProvider>
+    </LanguageProvider>
   );
 }

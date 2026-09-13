@@ -3,10 +3,12 @@ import { View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import Sidebar from '../components/Sidebar';
 import { Text, useIsDesktopNav } from '../components/ui';
 import { space } from '../theme';
 import { useKeyboardOpen } from '../hooks/useKeyboardOpen';
+import { FeedbackSheet } from '../components/FeedbackSheet';
 import { NAV_ITEMS } from './navItems';
 import AppNavigator, { RootStackParamList } from './AppNavigator';
 
@@ -28,6 +30,7 @@ type NavigateFn = (route: keyof RootStackParamList) => void;
  */
 const TabBar: React.FC<{ activeRoute: string; onNavigate: NavigateFn }> = ({ activeRoute, onNavigate }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   return (
@@ -41,10 +44,10 @@ const TabBar: React.FC<{ activeRoute: string; onNavigate: NavigateFn }> = ({ act
             onPress={() => onNavigate(item.route)}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
-            accessibilityLabel={item.label}
+            accessibilityLabel={t(item.labelKey)}
           >
             <Ionicons name={item.icon} size={22} color={active ? theme.accent : theme.muted} />
-            <Text variant="caption" tone={active ? 'accent' : 'muted'}>{item.label}</Text>
+            <Text variant="caption" tone={active ? 'accent' : 'muted'}>{t(item.labelKey)}</Text>
           </TouchableOpacity>
         );
       })}
@@ -57,18 +60,28 @@ const TabBar: React.FC<{ activeRoute: string; onNavigate: NavigateFn }> = ({ act
  * above every screen — a title the tab bar already gives, on a phone that has none to spare. All
  * that is left is the way into Profile, which narrow has no rail for.
  */
-const TopBar: React.FC<{ onPress: () => void }> = ({ onPress }) => {
+const TopBar: React.FC<{ onPress: () => void; onReport: () => void }> = ({ onPress, onReport }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   return (
     <View style={styles.topBar}>
       <TouchableOpacity
         style={styles.topBtn}
+        onPress={onReport}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={t('nav.report')}
+      >
+        <Ionicons name="megaphone-outline" size={24} color={theme.subtext} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.topBtn}
         onPress={onPress}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityRole="button"
-        accessibilityLabel="Profile"
+        accessibilityLabel={t('nav.profile')}
       >
         <Ionicons name="person-circle-outline" size={26} color={theme.subtext} />
       </TouchableOpacity>
@@ -81,6 +94,9 @@ const AppShell: React.FC = () => {
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [activeRoute, setActiveRoute] = useState('Chat');
   const [railCollapsed, setRailCollapsed] = useState(false);
+  // One sheet for the whole app (BACKLOG 9.16), so the top bar and the rail open the same
+  // instance and every screen can reach it without its own copy.
+  const [reportOpen, setReportOpen] = useState(false);
 
   const isDesktopNav = useIsDesktopNav();
   const keyboardOpen = useKeyboardOpen();
@@ -107,13 +123,17 @@ const AppShell: React.FC = () => {
           onNavigate={navigate}
           collapsed={railCollapsed}
           onToggleCollapse={() => setRailCollapsed((v) => !v)}
+          onReport={() => setReportOpen(true)}
         />
       )}
 
       <View style={styles.content}>
         {!isDesktopNav && isTabRoute && !keyboardOpen && (
           // Pushed, not reset: Profile is a sub-screen on narrow and keeps its back arrow.
-          <TopBar onPress={() => navigationRef.isReady() && navigationRef.navigate('Profile')} />
+          <TopBar
+            onPress={() => navigationRef.isReady() && navigationRef.navigate('Profile')}
+            onReport={() => setReportOpen(true)}
+          />
         )}
 
         <NavigationContainer
@@ -130,6 +150,8 @@ const AppShell: React.FC = () => {
       {!isDesktopNav && showChrome && !keyboardOpen && (
         <TabBar activeRoute={activeRoute} onNavigate={navigate} />
       )}
+
+      <FeedbackSheet visible={reportOpen} onClose={() => setReportOpen(false)} route={activeRoute} />
     </View>
   );
 };
@@ -145,6 +167,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    gap: space.xs,
     paddingHorizontal: space.md,
     // No SafeAreaProvider: the status-bar inset is a constant, as it is for the tab bar below.
     // Web sits under the browser chrome and needs none.

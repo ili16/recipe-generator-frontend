@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme, useTheme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { type } from '../theme';
 import { Badge } from './ui';
 import { RecipeDocument } from '../types';
@@ -44,6 +45,7 @@ interface Props {
 
 const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const hasContent = structured && (structured.ingredients.length > 0 || structured.steps.length > 0);
@@ -101,13 +103,13 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true })
               <Badge key={m} tone="neutral" label={m} />
             ))}
           </View>
-          <Text style={styles.macroNote}>Per serving · estimated</Text>
+          <Text style={styles.macroNote}>{t('recipeView.perServing')}</Text>
         </View>
       )}
 
       {structured!.ingredients.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Ingredients</Text>
+          <Text style={styles.sectionLabel}>{t('edit.ingredients')}</Text>
           {[...sections.entries()].map(([section, items]) => (
             <View key={section || '__default'}>
               {section !== '' && <Text style={styles.subsectionLabel}>{section}</Text>}
@@ -127,7 +129,7 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true })
 
       {showSteps && structured!.steps.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Steps</Text>
+          <Text style={styles.sectionLabel}>{t('edit.steps')}</Text>
           {structured!.steps.map((s, idx) => (
             <View key={idx} style={styles.stepCard}>
               <View style={styles.stepCardMain}>

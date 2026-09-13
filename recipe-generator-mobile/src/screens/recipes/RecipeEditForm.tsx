@@ -3,9 +3,10 @@ import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity } from 
 import { Ionicons } from '@expo/vector-icons';
 import { RecipeDocument } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
 import { useAlert } from '../../context/AlertContext';
-import { TAGS_BY_GROUP, TAG_GROUP_LABELS, TagGroup } from '../../constants/tags';
+import { TAGS_BY_GROUP, tagGroupLabelKey, tagLabelKey, TagGroup } from '../../constants/tags';
 import { makeSharedStyles } from './styles';
 import { Chip } from '../../components/ui';
 
@@ -20,6 +21,7 @@ interface Props {
 // hears about it when the user saves.
 const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const { showAlert } = useAlert();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -77,7 +79,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
 
   const save = () => {
     if (!doc.title.trim()) {
-      showAlert('Error', 'Title is required', 'error');
+      showAlert(t('common.error'), t('edit.titleRequired'), 'error');
       return;
     }
     onSave(doc);
@@ -88,7 +90,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
   return (
     <>
       <ScrollView style={styles.editFormScroll} nestedScrollEnabled>
-        <Text style={s.fieldLabel}>Title</Text>
+        <Text style={s.fieldLabel}>{t('edit.title')}</Text>
         <TextInput autoComplete="off"
           style={s.fieldInput}
           value={doc.title}
@@ -96,7 +98,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
           placeholderTextColor={theme.muted}
         />
 
-        <Text style={s.fieldLabel}>Summary</Text>
+        <Text style={s.fieldLabel}>{t('edit.summary')}</Text>
         <TextInput autoComplete="off"
           style={[s.fieldInput, s.fieldInputMultiline]}
           value={doc.summary ?? ''}
@@ -107,7 +109,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
 
         <View style={s.fieldRow}>
           <View style={s.fieldCol}>
-            <Text style={s.fieldLabel}>Servings</Text>
+            <Text style={s.fieldLabel}>{t('common.servings')}</Text>
             <TextInput autoComplete="off"
               style={s.fieldInput}
               keyboardType="numeric"
@@ -117,7 +119,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
             />
           </View>
           <View style={s.fieldCol}>
-            <Text style={s.fieldLabel}>Total (min)</Text>
+            <Text style={s.fieldLabel}>{t('edit.totalMin')}</Text>
             <TextInput autoComplete="off"
               style={s.fieldInput}
               keyboardType="numeric"
@@ -127,7 +129,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
             />
           </View>
           <View style={s.fieldCol}>
-            <Text style={s.fieldLabel}>Prep (min)</Text>
+            <Text style={s.fieldLabel}>{t('edit.prepMin')}</Text>
             <TextInput autoComplete="off"
               style={s.fieldInput}
               keyboardType="numeric"
@@ -137,7 +139,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
             />
           </View>
           <View style={s.fieldCol}>
-            <Text style={s.fieldLabel}>Cook (min)</Text>
+            <Text style={s.fieldLabel}>{t('edit.cookMin')}</Text>
             <TextInput autoComplete="off"
               style={s.fieldInput}
               keyboardType="numeric"
@@ -148,28 +150,28 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
           </View>
         </View>
 
-        <Text style={s.fieldLabel}>Difficulty</Text>
+        <Text style={s.fieldLabel}>{t('edit.difficulty')}</Text>
         <TextInput autoComplete="off"
           style={s.fieldInput}
           value={doc.difficulty ?? ''}
           onChangeText={t => updateDoc({ difficulty: t })}
-          placeholder="e.g. easy"
+          placeholder={t('edit.difficultyPlaceholder')}
           placeholderTextColor={theme.muted}
         />
 
-        <Text style={s.sectionLabel}>Ingredients</Text>
+        <Text style={s.sectionLabel}>{t('edit.ingredients')}</Text>
         {doc.ingredients.map((ing, idx) => (
           <View key={idx} style={styles.ingredientEditRow}>
             <TextInput autoComplete="off"
               style={[s.fieldInput, styles.ingredientAmountInput]}
-              placeholder="Amount"
+              placeholder={t('edit.amount')}
               placeholderTextColor={theme.muted}
               value={ing.quantity_text ?? ''}
               onChangeText={t => updateIngredient(idx, { quantity_text: t })}
             />
             <TextInput autoComplete="off"
               style={[s.fieldInput, styles.ingredientItemInput]}
-              placeholder="Ingredient"
+              placeholder={t('edit.ingredient')}
               placeholderTextColor={theme.muted}
               value={ing.item}
               onChangeText={t => updateIngredient(idx, { item: t })}
@@ -186,10 +188,10 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
           </View>
         ))}
         <TouchableOpacity style={styles.addRowButton} onPress={addIngredient}>
-          <Text style={styles.addRowButtonText}>+ Add ingredient</Text>
+          <Text style={styles.addRowButtonText}>{t('edit.addIngredient')}</Text>
         </TouchableOpacity>
 
-        <Text style={s.sectionLabel}>Steps</Text>
+        <Text style={s.sectionLabel}>{t('edit.steps')}</Text>
         {doc.steps.map((step, idx) => (
           <View key={idx} style={styles.stepEditBlock}>
             <View style={styles.stepEditHeader}>
@@ -200,7 +202,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
             </View>
             <TextInput autoComplete="off"
               style={[s.fieldInput, styles.stepTextInput]}
-              placeholder="Step"
+              placeholder={t('edit.step')}
               placeholderTextColor={theme.muted}
               value={step.step_text}
               onChangeText={t => updateStep(idx, { step_text: t })}
@@ -208,7 +210,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
             />
             <View style={s.fieldRow}>
               <View style={s.fieldCol}>
-                <Text style={s.fieldLabel}>Timer (sec)</Text>
+                <Text style={s.fieldLabel}>{t('edit.timerSec')}</Text>
                 <TextInput autoComplete="off"
                   style={s.fieldInput}
                   keyboardType="numeric"
@@ -218,7 +220,7 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
                 />
               </View>
               <View style={s.fieldCol}>
-                <Text style={s.fieldLabel}>Temp (°C)</Text>
+                <Text style={s.fieldLabel}>{t('edit.tempC')}</Text>
                 <TextInput autoComplete="off"
                   style={s.fieldInput}
                   keyboardType="numeric"
@@ -231,18 +233,18 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
           </View>
         ))}
         <TouchableOpacity style={styles.addRowButton} onPress={addStep}>
-          <Text style={styles.addRowButtonText}>+ Add step</Text>
+          <Text style={styles.addRowButtonText}>{t('edit.addStep')}</Text>
         </TouchableOpacity>
 
-        <Text style={s.sectionLabel}>Tags</Text>
+        <Text style={s.sectionLabel}>{t('recipes.tags')}</Text>
         {(Object.keys(TAGS_BY_GROUP) as TagGroup[]).map(group => (
           <View key={group} style={s.filterGroup}>
-            <Text style={s.filterGroupLabel}>{TAG_GROUP_LABELS[group]}</Text>
+            <Text style={s.filterGroupLabel}>{t(tagGroupLabelKey(group))}</Text>
             <View style={s.tagRow}>
               {TAGS_BY_GROUP[group].map(tag => (
                 <Chip
                   key={tag.slug}
-                  label={tag.label}
+                  label={t(tagLabelKey(tag.slug))}
                   selected={doc.tags.includes(tag.slug)}
                   onPress={() => toggleTag(tag.slug)}
                 />
@@ -254,14 +256,14 @@ const RecipeEditForm: React.FC<Props> = ({ initial, saving, onCancel, onSave }) 
 
       <View style={s.cardActions}>
         <TouchableOpacity style={styles.cancelButton} onPress={onCancel} disabled={saving}>
-          <Text style={styles.cancelButtonText}>Cancel</Text>
+          <Text style={styles.cancelButtonText}>{t('common.cancel')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[s.deleteButton, saving && s.btnDisabled]}
           onPress={save}
           disabled={saving}
         >
-          <Text style={s.deleteButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
+          <Text style={s.deleteButtonText}>{saving ? t('common.saving') : t('common.save')}</Text>
         </TouchableOpacity>
       </View>
     </>

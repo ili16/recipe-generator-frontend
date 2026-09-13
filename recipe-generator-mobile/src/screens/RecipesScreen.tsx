@@ -4,6 +4,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { type } from '../theme';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useRecipeLibrary } from '../hooks/useRecipeLibrary';
@@ -24,6 +25,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   const [activeCollectionId, setActiveCollectionId] = useState<number | null>(null);
   const [quickFilters, setQuickFilters] = useState<Set<QuickFilter>>(new Set());
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
 
@@ -78,7 +80,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
         r.recipename.toLowerCase().includes(q) ||
         r.recipe.toLowerCase().includes(q);
       const matchesTags = selectedTags.size === 0 ||
-        Array.from(selectedTags).every(t => (r.tags ?? []).includes(t));
+        Array.from(selectedTags).every(slug => (r.tags ?? []).includes(slug));
       return matchesSearch && matchesTags && matchesQuickFilters(r, quickFilters) &&
         (inCollection === null || inCollection.has(r.id));
     });
@@ -92,13 +94,13 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     return (
       <View style={styles.container}>
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>Sign in required</Text>
-          <Text style={styles.emptySubtext}>Please sign in to save and view your recipes</Text>
+          <Text style={styles.emptyText}>{t('recipes.signInRequired')}</Text>
+          <Text style={styles.emptySubtext}>{t('recipes.signInBlurb')}</Text>
           <TouchableOpacity style={styles.generateButton} onPress={() => navigation.navigate('Login')}>
-            <Text style={styles.generateButtonText}>Sign In</Text>
+            <Text style={styles.generateButtonText}>{t('nav.login')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.skipButton} onPress={() => navigation.navigate('Chat')}>
-            <Text style={styles.skipButtonText}>Generate Recipes Anonymously</Text>
+            <Text style={styles.skipButtonText}>{t('recipes.generateAnonymously')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -108,7 +110,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
   if (!trashMode && lib.loading && lib.recipes.length === 0) {
     return (
       <View style={styles.container}>
-        <Loading visible={true} message="Loading recipes..." />
+        <Loading visible={true} message={t('recipes.loading')} />
       </View>
     );
   }
@@ -117,10 +119,10 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
     return (
       <View style={styles.container}>
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No recipes yet</Text>
-          <Text style={styles.emptySubtext}>Generate and save your first recipe</Text>
+          <Text style={styles.emptyText}>{t('recipes.emptyTitle')}</Text>
+          <Text style={styles.emptySubtext}>{t('recipes.emptyBlurb')}</Text>
           <TouchableOpacity style={styles.generateButton} onPress={() => navigation.navigate('Chat')}>
-            <Text style={styles.generateButtonText}>Generate Recipe</Text>
+            <Text style={styles.generateButtonText}>{t('recipes.generateRecipe')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -155,9 +157,9 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
       {trashMode ? (
         lib.trash.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <UIText variant="title">Trash is empty</UIText>
+            <UIText variant="title">{t('recipes.trashEmpty')}</UIText>
             <UIText tone="muted" style={{ marginTop: 8, textAlign: 'center' }}>
-              Deleted recipes stay here for 30 days, then are removed for good
+              {t('recipes.trashBlurb')}
             </UIText>
           </View>
         ) : (
@@ -166,17 +168,17 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
               <Card key={recipe.id} style={styles.trashRow}>
                 <View style={styles.trashText}>
                   <UIText variant="label" numberOfLines={1}>{recipe.recipename}</UIText>
-                  <UIText variant="caption" tone="muted">{deletedLabel(recipe.deleted_at)}</UIText>
+                  <UIText variant="caption" tone="muted">{deletedLabel(recipe.deleted_at, t)}</UIText>
                 </View>
-                <Button title="Restore" variant="secondary" size="sm" onPress={() => lib.restore(recipe)} />
+                <Button title={t('recipes.restore')} variant="secondary" size="sm" onPress={() => lib.restore(recipe)} />
               </Card>
             ))}
           </ScrollView>
         )
       ) : visibleRecipes.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No matching recipes</Text>
-          <Text style={styles.emptySubtext}>Try a different search or fewer tag filters</Text>
+          <Text style={styles.emptyText}>{t('recipes.noMatches')}</Text>
+          <Text style={styles.emptySubtext}>{t('recipes.noMatchesBlurb')}</Text>
         </View>
       ) : (
         <ScrollView
@@ -226,11 +228,11 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
 
 // "Deleted 3 days ago" — the trash's only per-row detail, and the one that tells the
 // user how long they have left of the 30.
-const deletedLabel = (deletedAt?: string) => {
-  if (!deletedAt) return 'Deleted';
+const deletedLabel = (deletedAt: string | undefined, t: (k: string, o?: Record<string, unknown>) => string) => {
+  if (!deletedAt) return t('recipes.deleted');
   const days = Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86_400_000);
-  if (days <= 0) return 'Deleted today';
-  return `Deleted ${days} day${days === 1 ? '' : 's'} ago · ${30 - days} left`;
+  if (days <= 0) return t('recipes.deletedToday');
+  return t('recipes.deletedDaysAgo', { count: days, left: 30 - days });
 };
 
 const makeStyles = (t: Theme) => StyleSheet.create({

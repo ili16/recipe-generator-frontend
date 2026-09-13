@@ -2,16 +2,15 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { UserPreferences, Weekday } from '../types';
-import { TAGS_BY_GROUP } from '../constants/tags';
+import { TAGS_BY_GROUP, tagLabelKey } from '../constants/tags';
 import { WEEKDAYS, BATCH_DAYS_OPTIONS } from '../constants/mealPlanPrefs';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { type } from '../theme';
 import { Chip } from './ui';
 
-const SKILL_LEVELS: Array<{ value: NonNullable<UserPreferences['skill_level']>; label: string }> = [
-  { value: 'beginner', label: 'Beginner' },
-  { value: 'intermediate', label: 'Intermediate' },
-  { value: 'advanced', label: 'Advanced' },
+const SKILL_LEVELS: Array<NonNullable<UserPreferences['skill_level']>> = [
+  'beginner', 'intermediate', 'advanced',
 ];
 
 const DIETARY_CHIPS = TAGS_BY_GROUP.dietary;
@@ -25,6 +24,7 @@ interface Props {
 // 4.1 deleted WeekView's inline copy, which is what the `compact` size variant existed for.
 const PreferencesPanel: React.FC<Props> = ({ value, onChange }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [dislikedInput, setDislikedInput] = useState('');
 
@@ -63,9 +63,9 @@ const PreferencesPanel: React.FC<Props> = ({ value, onChange }) => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Skill level</Text>
+      <Text style={styles.label}>{t('prefs.skillLevel')}</Text>
       <View style={styles.segmented}>
-        {SKILL_LEVELS.map(({ value: v, label }) => {
+        {SKILL_LEVELS.map((v) => {
           const sel = value.skill_level === v;
           return (
             <TouchableOpacity
@@ -73,30 +73,30 @@ const PreferencesPanel: React.FC<Props> = ({ value, onChange }) => {
               style={[styles.segment, sel && styles.segmentSel]}
               onPress={() => onChange({ ...value, skill_level: sel ? null : v })}
             >
-              <Text style={[styles.segmentText, sel && styles.segmentTextSel]}>{label}</Text>
+              <Text style={[styles.segmentText, sel && styles.segmentTextSel]}>{t(`prefs.skill.${v}`)}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      <Text style={styles.label}>Dietary preferences</Text>
+      <Text style={styles.label}>{t('prefs.dietary')}</Text>
       <View style={styles.chipRow}>
         {DIETARY_CHIPS.map(tag => (
           <Chip
             key={tag.slug}
-            label={tag.label}
+            label={t(tagLabelKey(tag.slug))}
             selected={value.dietary_prefs.includes(tag.slug)}
             onPress={() => toggleDietaryPref(tag.slug)}
           />
         ))}
       </View>
 
-      <Text style={styles.label}>Ingredients you dislike</Text>
+      <Text style={styles.label}>{t('prefs.dislikes')}</Text>
       <View style={styles.addRow}>
         <TextInput
           autoComplete="off"
           style={styles.addInput}
-          placeholder="e.g. cilantro"
+          placeholder={t('prefs.dislikesPlaceholder')}
           placeholderTextColor={theme.muted}
           value={dislikedInput}
           onChangeText={setDislikedInput}
@@ -125,7 +125,7 @@ const PreferencesPanel: React.FC<Props> = ({ value, onChange }) => {
       {/* Asked once, ever, and the number every planned day starts from (BACKLOG 9.12).
           Blank is a real answer — "never said" — so nothing claims a mismatch until it
           has been set. */}
-      <Text style={styles.label}>How many people do you cook for?</Text>
+      <Text style={styles.label}>{t('prefs.householdSize')}</Text>
       <View style={styles.chipRow}>
         {[1, 2, 3, 4, 5, 6].map(n => (
           <Chip
@@ -137,33 +137,33 @@ const PreferencesPanel: React.FC<Props> = ({ value, onChange }) => {
         ))}
       </View>
 
-      <Text style={styles.label}>Days you skip a meal entirely</Text>
+      <Text style={styles.label}>{t('prefs.noFoodDays')}</Text>
       <View style={styles.chipRow}>
-        {WEEKDAYS.map(({ value: v, label }) => (
+        {WEEKDAYS.map(({ value: v, labelKey }) => (
           <Chip
             key={v}
-            label={label}
+            label={t(labelKey)}
             selected={value.meal_plan_no_food_days.includes(v)}
             onPress={() => toggleDay('meal_plan_no_food_days', v)}
           />
         ))}
       </View>
 
-      <Text style={styles.label}>Days you eat the previous day's leftovers</Text>
+      <Text style={styles.label}>{t('prefs.noCookDays')}</Text>
       <View style={styles.chipRow}>
-        {WEEKDAYS.map(({ value: v, label }) => (
+        {WEEKDAYS.map(({ value: v, labelKey }) => (
           <Chip
             key={v}
-            label={label}
+            label={t(labelKey)}
             selected={value.meal_plan_no_cook_days.includes(v)}
             onPress={() => toggleDay('meal_plan_no_cook_days', v)}
           />
         ))}
       </View>
 
-      <Text style={styles.label}>How many days does one recipe cover?</Text>
+      <Text style={styles.label}>{t('prefs.batchDays')}</Text>
       <View style={styles.segmented}>
-        {BATCH_DAYS_OPTIONS.map(({ value: v, label }) => {
+        {BATCH_DAYS_OPTIONS.map(({ value: v, labelKey }) => {
           const sel = value.meal_plan_batch_days === v;
           return (
             <TouchableOpacity
@@ -171,18 +171,18 @@ const PreferencesPanel: React.FC<Props> = ({ value, onChange }) => {
               style={[styles.segment, sel && styles.segmentSel]}
               onPress={() => onChange({ ...value, meal_plan_batch_days: v })}
             >
-              <Text style={[styles.segmentText, sel && styles.segmentTextSel]}>{label}</Text>
+              <Text style={[styles.segmentText, sel && styles.segmentTextSel]}>{t(labelKey)}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      <Text style={styles.label}>Week starts on</Text>
+      <Text style={styles.label}>{t('prefs.weekStart')}</Text>
       <View style={styles.chipRow}>
-        {WEEKDAYS.map(({ value: v, label }) => (
+        {WEEKDAYS.map(({ value: v, labelKey }) => (
           <Chip
             key={v}
-            label={label}
+            label={t(labelKey)}
             selected={value.week_start_day === v}
             onPress={() => onChange({ ...value, week_start_day: v })}
           />

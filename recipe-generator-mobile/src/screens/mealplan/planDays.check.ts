@@ -30,6 +30,7 @@ const run = (items: MealPlanItem[], opts: { priorDay?: MealPlanItem[]; noCookDay
   const itemsByDate: Record<string, MealPlanItem[]> = {};
   for (const i of items) itemsByDate[i.planned_on] = [...(itemsByDate[i.planned_on] ?? []), i];
   return buildWeek({
+    locale: 'en',
     weekStart,
     today,
     itemsByDate,

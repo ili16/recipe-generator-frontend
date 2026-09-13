@@ -23,6 +23,12 @@ export const daysUntil = (iso: string, today: Date = new Date()): number => {
   return Math.round((due.getTime() - from.getTime()) / 86400000);
 };
 
-/** How a days-remaining count reads on a badge. */
-export const expiryLabel = (days: number): string =>
-  days < 0 ? 'expired' : days === 0 ? 'today' : days === 1 ? 'tomorrow' : `${days} days`;
+/**
+ * How a days-remaining count reads on a badge. `t` is passed in rather than read off the
+ * i18n singleton so this file stays pure and its check script runs under plain node.
+ */
+export const expiryLabel = (days: number, t: (key: string, options?: Record<string, unknown>) => string): string =>
+  days < 0 ? t('pantry.expired')
+    : days === 0 ? t('pantry.today')
+    : days === 1 ? t('pantry.tomorrow')
+    : t('pantry.inDays', { count: days });

@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, FlatList, TextInput } from 'react-native';
 import { Recipe, MealSlot } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { pickerRows } from './pickerRows';
 import { type } from '../../theme';
 
@@ -14,13 +15,6 @@ interface Props {
   onClose: () => void;
 }
 
-const SLOT_ARTICLE: Record<MealSlot, string> = {
-  breakfast: 'a breakfast',
-  lunch: 'a lunch',
-  dinner: 'a dinner',
-  snack: 'a snack',
-};
-
 /**
  * Shared "choose a saved recipe" picker: the week view's empty day, every row's Swap, and
  * "Add a meal".
@@ -31,6 +25,7 @@ const SLOT_ARTICLE: Record<MealSlot, string> = {
  */
 const RecipePickerModal: React.FC<Props> = ({ visible, recipes, slot, onSelect, onClose }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [query, setQuery] = useState('');
 
@@ -39,7 +34,7 @@ const RecipePickerModal: React.FC<Props> = ({ visible, recipes, slot, onSelect, 
 
   const rows = useMemo(() => pickerRows(recipes, slot, query), [recipes, slot, query]);
 
-  const title = slot ? `Choose ${SLOT_ARTICLE[slot]}` : 'Choose a recipe';
+  const title = slot ? t(`plan.chooseSlot.${slot}`) : t('plan.chooseRecipe');
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -47,27 +42,27 @@ const RecipePickerModal: React.FC<Props> = ({ visible, recipes, slot, onSelect, 
         <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
           <Text style={styles.modalTitle}>{title}</Text>
           {recipes.length === 0 ? (
-            <Text style={styles.emptySubtext}>No saved recipes yet</Text>
+            <Text style={styles.emptySubtext}>{t('plan.noSavedRecipes')}</Text>
           ) : (
             <>
               <TextInput
                 style={styles.search}
                 value={query}
                 onChangeText={setQuery}
-                placeholder="Search recipes"
+                placeholder={t('plan.searchRecipes')}
                 placeholderTextColor={theme.muted}
                 autoCorrect={false}
-                accessibilityLabel="Search saved recipes"
+                accessibilityLabel={t('plan.searchSavedRecipes')}
               />
               {rows.length === 0 ? (
-                <Text style={styles.emptySubtext}>Nothing matches “{query.trim()}”</Text>
+                <Text style={styles.emptySubtext}>{t('plan.nothingMatches', { query: query.trim() })}</Text>
               ) : (
                 <FlatList
                   data={rows}
                   keyboardShouldPersistTaps="handled"
-                  keyExtractor={row => row.kind === 'heading' ? `h:${row.label}` : String(row.recipe.id)}
+                  keyExtractor={row => row.kind === 'heading' ? `h:${row.labelKey}` : String(row.recipe.id)}
                   renderItem={({ item }) => item.kind === 'heading' ? (
-                    <Text style={styles.heading}>{item.label}</Text>
+                    <Text style={styles.heading}>{t(item.labelKey)}</Text>
                   ) : (
                     <TouchableOpacity style={styles.pickerRow} onPress={() => onSelect(item.recipe)}>
                       <Text style={styles.pickerRowText} numberOfLines={1}>{item.recipe.recipename}</Text>

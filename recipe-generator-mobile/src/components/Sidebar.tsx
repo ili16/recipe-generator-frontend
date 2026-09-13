@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { type } from '../theme';
 import { NAV_ITEMS, PROFILE_NAV_ITEM, NavItem } from '../navigation/navItems';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -15,10 +16,13 @@ interface Props {
   onNavigate: (route: keyof RootStackParamList) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** Opens the report sheet (BACKLOG 9.16). Not a nav item — it goes nowhere. */
+  onReport?: () => void;
 }
 
-const Sidebar: React.FC<Props> = ({ activeRoute, onNavigate, collapsed = false, onToggleCollapse }) => {
+const Sidebar: React.FC<Props> = ({ activeRoute, onNavigate, collapsed = false, onToggleCollapse, onReport }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const renderItem = (item: NavItem) => {
@@ -30,10 +34,10 @@ const Sidebar: React.FC<Props> = ({ activeRoute, onNavigate, collapsed = false, 
         onPress={() => onNavigate(item.route)}
         accessibilityRole="tab"
         accessibilityState={{ selected: active }}
-        accessibilityLabel={item.label}
+        accessibilityLabel={t(item.labelKey)}
       >
         <Ionicons name={item.icon} size={19} color={active ? theme.accent : theme.subtext} style={[!collapsed && styles.itemIcon]} />
-        {!collapsed && <Text style={[styles.itemLabel, active && styles.itemLabelActive]} numberOfLines={1}>{item.label}</Text>}
+        {!collapsed && <Text style={[styles.itemLabel, active && styles.itemLabelActive]} numberOfLines={1}>{t(item.labelKey)}</Text>}
       </TouchableOpacity>
     );
   };
@@ -43,13 +47,31 @@ const Sidebar: React.FC<Props> = ({ activeRoute, onNavigate, collapsed = false, 
       <View style={[styles.topRow, collapsed && styles.topRowCollapsed]}>
         {!collapsed && <Text style={styles.logo}>RecipeGenerator</Text>}
         <TouchableOpacity onPress={onToggleCollapse} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name={collapsed ? 'chevron-forward' : 'chevron-back'} size={18} color={theme.subtext} />
+          <Ionicons
+            name={collapsed ? 'chevron-forward' : 'chevron-back'}
+            size={18}
+            color={theme.subtext}
+            accessibilityLabel={t(collapsed ? 'nav.expand' : 'nav.collapse')}
+          />
         </TouchableOpacity>
       </View>
       <View style={styles.list}>
         {NAV_ITEMS.map(renderItem)}
       </View>
       <View style={styles.footer}>
+        {onReport && (
+          // Above Profile, and not in NAV_ITEMS: this opens a sheet rather than navigating,
+          // so it is not a destination and must not render as a selected tab.
+          <TouchableOpacity
+            style={[styles.item, collapsed && styles.itemCollapsed]}
+            onPress={onReport}
+            accessibilityRole="button"
+            accessibilityLabel={t('nav.report')}
+          >
+            <Ionicons name="megaphone-outline" size={19} color={theme.subtext} style={[!collapsed && styles.itemIcon]} />
+            {!collapsed && <Text style={styles.itemLabel} numberOfLines={1}>{t('nav.report')}</Text>}
+          </TouchableOpacity>
+        )}
         {renderItem(PROFILE_NAV_ITEM)}
       </View>
     </View>

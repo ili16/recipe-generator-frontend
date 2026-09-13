@@ -3,11 +3,13 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { Collection, Recipe, RecipeDocument, RecipeVersion } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
 import RecipeView from '../../components/RecipeView';
 import { Badge } from '../../components/ui';
-import { TAG_LABEL_BY_SLUG } from '../../constants/tags';
+import { tagLabelKey, mealTypeSlug } from '../../constants/tags';
 import { originLabel } from '../../utils/recipeOrigin';
+import { totalTimeMinutes } from '../../utils/recipeTime';
 import { makeSharedStyles } from './styles';
 import RecipeEditForm from './RecipeEditForm';
 import { RefinePanel, VariantPanel, HistoryPanel, CollectionsPanel, VariantPreview } from './RecipePanels';
@@ -45,6 +47,7 @@ const RecipeCard: React.FC<Props> = ({
   collections, onToggleCollection, onCreateCollection,
 }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
@@ -62,6 +65,8 @@ const RecipeCard: React.FC<Props> = ({
   // default to 0 — which is also what "no pantry match to show" looks like.
   const pantryHave = recipe.pantry_have ?? 0;
   const pantryTotal = recipe.pantry_total ?? 0;
+  const mealType = mealTypeSlug(recipe.tags);
+  const totalMinutes = totalTimeMinutes(recipe);
 
   const startEdit = async () => {
     const doc = (await ensureStructured(recipe)) ?? {
@@ -131,20 +136,28 @@ const RecipeCard: React.FC<Props> = ({
           <Text style={styles.recipeName}>{recipe.recipename}</Text>
           {recipe.variant_of_recipe_id != null && (
             <Text style={styles.variantOfCaption}>
-              Variant of {variantOfName ?? 'a saved recipe'}
+              {t('recipes.variantOf', { name: variantOfName ?? t('recipes.aSavedRecipe') })}
             </Text>
           )}
-          {originLabel(recipe) && (
-            <Text style={styles.variantOfCaption}>{originLabel(recipe)}</Text>
+          {originLabel(recipe, t) && (
+            <Text style={styles.variantOfCaption}>{originLabel(recipe, t)}</Text>
           )}
-          {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0 || variantCount > 0 || !!recipe.share_token || recipe.calories != null || pantryHave > 0) && (
+          {/* What a person scans a list for — which meal, how long, how many calories —
+              plus the two badges that are about *this* copy of it (what's in the pantry,
+              whether it's shared). Everything else the recipe knows is a filter input and
+              agent context, and lives in the expanded card below. */}
+          {(mealType || totalMinutes > 0 || recipe.calories != null || !!recipe.share_token || pantryHave > 0) && (
             <View style={styles.tagBadgeRow}>
-              {/* Pantry match (BACKLOG 7.3). Only ever shown when the caller actually has
-                  something: an empty pantry would otherwise brand every recipe "0/8". */}
-              {pantryHave > 0 && (
+              {mealType && (
                 <Badge
-                  label={pantryHave === pantryTotal ? `Pantry ready (${pantryTotal})` : `${pantryHave}/${pantryTotal} in pantry`}
-                  icon={<Ionicons name="file-tray-stacked-outline" size={11} color={theme.accent} />}
+                  label={t(tagLabelKey(mealType))}
+                  icon={<Ionicons name="restaurant-outline" size={11} color={theme.accent} />}
+                />
+              )}
+              {totalMinutes > 0 && (
+                <Badge
+                  label={`${totalMinutes} min`}
+                  icon={<Ionicons name="time-outline" size={11} color={theme.accent} />}
                 />
               )}
               {recipe.calories != null && (
@@ -153,31 +166,19 @@ const RecipeCard: React.FC<Props> = ({
                   icon={<Ionicons name="flame-outline" size={11} color={theme.accent} />}
                 />
               )}
+              {/* Pantry match (BACKLOG 7.3). Only ever shown when the caller actually has
+                  something: an empty pantry would otherwise brand every recipe "0/8". */}
+              {pantryHave > 0 && (
+                <Badge
+                  label={pantryHave === pantryTotal
+                    ? t('recipes.pantryReady', { count: pantryTotal })
+                    : t('recipes.pantryPartial', { have: pantryHave, total: pantryTotal })}
+                  icon={<Ionicons name="file-tray-stacked-outline" size={11} color={theme.accent} />}
+                />
+              )}
               {!!recipe.share_token && (
-                <Badge label="Shared" icon={<Ionicons name="link" size={11} color={theme.accent} />} />
+                <Badge label={t('recipes.shared')} icon={<Ionicons name="link" size={11} color={theme.accent} />} />
               )}
-              {variantCount > 0 && (
-                <Badge
-                  label={`${variantCount} variant${variantCount === 1 ? '' : 's'}`}
-                  icon={<Ionicons name="copy-outline" size={11} color={theme.accent} />}
-                />
-              )}
-              {memberOf.map(c => (
-                <Badge
-                  key={`c${c.id}`}
-                  label={c.name}
-                  icon={<Ionicons name="folder-outline" size={11} color={theme.accent} />}
-                />
-              ))}
-              {recipe.manually_edited && (
-                <Badge
-                  label="Manually edited"
-                  icon={<Ionicons name="create-outline" size={11} color={theme.accent} />}
-                />
-              )}
-              {(recipe.tags ?? []).map(slug => (
-                <Badge key={slug} label={TAG_LABEL_BY_SLUG[slug] ?? slug} />
-              ))}
             </View>
           )}
         </View>
@@ -200,6 +201,35 @@ const RecipeCard: React.FC<Props> = ({
             />
           ) : (
             <>
+              {/* The rest of what this recipe knows, off the collapsed header so the list
+                  stays scannable: tags are filter inputs and agent context, not headlines. */}
+              {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0 || variantCount > 0) && (
+                <View style={styles.detailBadgeRow}>
+                  {variantCount > 0 && (
+                    <Badge
+                      label={t('recipes.variantCount', { count: variantCount })}
+                      icon={<Ionicons name="copy-outline" size={11} color={theme.accent} />}
+                    />
+                  )}
+                  {memberOf.map(c => (
+                    <Badge
+                      key={`c${c.id}`}
+                      label={c.name}
+                      icon={<Ionicons name="folder-outline" size={11} color={theme.accent} />}
+                    />
+                  ))}
+                  {recipe.manually_edited && (
+                    <Badge
+                      label={t('recipes.manuallyEdited')}
+                      icon={<Ionicons name="create-outline" size={11} color={theme.accent} />}
+                    />
+                  )}
+                  {(recipe.tags ?? []).map(slug => (
+                    <Badge key={slug} label={t(tagLabelKey(slug))} tone="neutral" />
+                  ))}
+                </View>
+              )}
+
               <ScrollView style={styles.recipeContentScroll} nestedScrollEnabled>
                 <RecipeView structured={recipe.structured} markdown={recipe.recipe} />
               </ScrollView>
@@ -230,14 +260,14 @@ const RecipeCard: React.FC<Props> = ({
               <View style={s.cardActions}>
                 <TouchableOpacity style={s.cookButton} onPress={startEdit}>
                   <Ionicons name="create-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
-                  <Text style={s.cookButtonText}>Edit</Text>
+                  <Text style={s.cookButtonText}>{t('common.edit')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={s.cookButton}
                   onPress={() => setPanel(p => (p === 'refine' ? 'none' : 'refine'))}
                 >
                   <Ionicons name="sparkles-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
-                  <Text style={s.cookButtonText}>Refine with AI</Text>
+                  <Text style={s.cookButtonText}>{t('recipes.refineWithAi')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={s.cookButton}
@@ -247,22 +277,22 @@ const RecipeCard: React.FC<Props> = ({
                   }}
                 >
                   <Ionicons name="copy-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
-                  <Text style={s.cookButtonText}>Create Variant</Text>
+                  <Text style={s.cookButtonText}>{t('recipes.createVariant')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={s.cookButton}
                   onPress={() => setPanel(p => (p === 'collections' ? 'none' : 'collections'))}
                 >
                   <Ionicons name="folder-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
-                  <Text style={s.cookButtonText}>Collections</Text>
+                  <Text style={s.cookButtonText}>{t('recipes.collections')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cookButton} onPress={toggleHistory}>
                   <Ionicons name="time-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
-                  <Text style={s.cookButtonText}>History</Text>
+                  <Text style={s.cookButtonText}>{t('recipes.history')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cookButton} onPress={onCook}>
                   <Ionicons name="flame-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
-                  <Text style={s.cookButtonText}>Cook</Text>
+                  <Text style={s.cookButtonText}>{t('recipes.cook')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cookButton} onPress={onToggleShare}>
                   <Ionicons
@@ -271,7 +301,7 @@ const RecipeCard: React.FC<Props> = ({
                     color={theme.accent}
                     style={{ marginRight: 6 }}
                   />
-                  <Text style={s.cookButtonText}>{recipe.share_token ? 'Stop sharing' : 'Share link'}</Text>
+                  <Text style={s.cookButtonText}>{recipe.share_token ? t('recipes.stopSharing') : t('recipes.shareLink')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cookButton} onPress={() => onVote(1)}>
                   <Ionicons name={recipe.my_vote === 1 ? 'thumbs-up' : 'thumbs-up-outline'} size={14} color={theme.accent} />
@@ -281,7 +311,7 @@ const RecipeCard: React.FC<Props> = ({
                 </TouchableOpacity>
                 <TouchableOpacity style={s.deleteButton} onPress={onDelete}>
                   <Ionicons name="trash-outline" size={14} color={theme.onAccent} style={{ marginRight: 6 }} />
-                  <Text style={s.deleteButtonText}>Delete</Text>
+                  <Text style={s.deleteButtonText}>{t('common.delete')}</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -323,6 +353,12 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     flexWrap: 'wrap',
     gap: 4,
     marginTop: 6,
+  },
+  detailBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 12,
   },
   expandIcon: {
     ...type.body, fontSize: 16,

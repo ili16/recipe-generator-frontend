@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
 import { Step } from './steps';
 import { makeChromeStyles } from './styles';
@@ -17,6 +18,7 @@ interface Props {
 
 const DonePhase: React.FC<Props> = ({ recipeId, recipeName, steps, notes, onClose, onRefine }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const c = useMemo(() => makeChromeStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const noteEntries = Object.entries(notes).filter(([, n]) => n.trim());
@@ -34,7 +36,7 @@ const DonePhase: React.FC<Props> = ({ recipeId, recipeName, steps, notes, onClos
     <View style={c.container}>
       <View style={c.header}>
         <TouchableOpacity onPress={onClose} style={c.headerSide}>
-          <Text style={c.headerAction}>Close</Text>
+          <Text style={c.headerAction}>{t('common.close')}</Text>
         </TouchableOpacity>
         <Text style={c.headerTitle} numberOfLines={1}>{recipeName}</Text>
         <View style={c.headerSide} />
@@ -42,11 +44,11 @@ const DonePhase: React.FC<Props> = ({ recipeId, recipeName, steps, notes, onClos
 
       <ScrollView style={c.scrollView} contentContainerStyle={c.scrollContent}>
         <Text style={styles.doneEmoji}>🍽️</Text>
-        <Text style={styles.doneTitle}>Great job!</Text>
-        <Text style={styles.doneSubtitle}>You cooked {recipeName}</Text>
+        <Text style={styles.doneTitle}>{t('cooking.greatJob')}</Text>
+        <Text style={styles.doneSubtitle}>{t('cooking.youCooked', { name: recipeName })}</Text>
 
         <Text style={styles.rateLabel}>
-          {rating ? 'Thanks — noted for next time' : 'How did it turn out?'}
+          {t(rating ? 'cooking.thanksNoted' : 'cooking.howDidItGo')}
         </Text>
         <View style={styles.stars}>
           {[1, 2, 3, 4, 5].map(n => (
@@ -54,7 +56,7 @@ const DonePhase: React.FC<Props> = ({ recipeId, recipeName, steps, notes, onClos
               key={n}
               onPress={() => rate(n)}
               accessibilityRole="button"
-              accessibilityLabel={`Rate ${n} out of 5`}
+              accessibilityLabel={t('cooking.rateA11y', { n })}
               accessibilityState={{ selected: rating === n }}
             >
               <Text style={[styles.star, rating !== null && n <= rating && styles.starOn]}>
@@ -66,33 +68,33 @@ const DonePhase: React.FC<Props> = ({ recipeId, recipeName, steps, notes, onClos
 
         {noteEntries.length > 0 ? (
           <>
-            <Text style={styles.sectionLabel}>Your cooking notes</Text>
+            <Text style={styles.sectionLabel}>{t('cooking.yourNotes')}</Text>
             {noteEntries.map(([idx, note]) => {
               const s = steps[parseInt(idx, 10)];
               return (
                 <View key={idx} style={styles.noteCard}>
-                  {s && <Text style={styles.noteStepLabel}>Step {parseInt(idx, 10) + 1}</Text>}
+                  {s && <Text style={styles.noteStepLabel}>{t('cooking.stepNumber', { number: parseInt(idx, 10) + 1 })}</Text>}
                   <Text style={styles.noteText}>{note}</Text>
                 </View>
               );
             })}
             <TouchableOpacity style={c.primaryBtn} onPress={onRefine}>
-              <Text style={c.primaryBtnText}>✨ Refine recipe with my notes</Text>
+              <Text style={c.primaryBtnText}>{t('cooking.refineWithNotes')}</Text>
             </TouchableOpacity>
             <Text style={styles.refineHint}>
-              AI will incorporate your notes into an improved version
+              {t('cooking.refineWithNotesHint')}
             </Text>
           </>
         ) : (
           <Text style={styles.noNotesText}>
-            No notes this time. Tap "📝 Note" during cooking to capture observations.
+            {t('cooking.noNotes')}
           </Text>
         )}
       </ScrollView>
 
       <View style={c.footer}>
         <TouchableOpacity style={c.secondaryBtn} onPress={onClose}>
-          <Text style={c.secondaryBtnText}>Back to Recipes</Text>
+          <Text style={c.secondaryBtnText}>{t('cooking.backToRecipes')}</Text>
         </TouchableOpacity>
       </View>
     </View>

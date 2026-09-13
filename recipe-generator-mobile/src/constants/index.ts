@@ -28,6 +28,7 @@ export const KEYCLOAK_CONFIG = {
 // API Endpoints (relative to API_BASE_URL)
 export const API_ENDPOINTS = {
   CHAT: 'chat',
+  SAVE_CHAT_DRAFT: 'chat/drafts/save',
   TRANSCRIBE_AUDIO: 'transcribe',
   UPDATE_RECIPE: 'update-recipe',
   GET_RECIPES: 'get-recipes',
@@ -43,6 +44,7 @@ export const API_ENDPOINTS = {
   COLLECTIONS: 'collections',
   PANTRY: 'pantry',
   SHARED: 'shared',
+  FEEDBACK: 'feedback',
 } as const;
 
 // Storage Keys
@@ -53,7 +55,9 @@ export const STORAGE_KEYS = {
   USER_TOKEN_EXPIRES_AT: 'user_token_expires_at',
   USER_PROFILE: 'user_profile',
   THEME_MODE: 'theme_mode',
+  LANGUAGE: 'language',
 } as const;
+
 
 // Keyed by user id so a shared device — or a logout/login within the same session —
 // never shows one account's cached meal plan to another before the background refetch lands.

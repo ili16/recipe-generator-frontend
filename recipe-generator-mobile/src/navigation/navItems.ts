@@ -3,7 +3,8 @@ import { RootStackParamList } from './AppNavigator';
 
 export interface NavItem {
   key: string;
-  label: string;
+  /** i18n key, not a word — the rail and the tab bar resolve it with `t()` (see src/i18n). */
+  labelKey: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
   route: keyof RootStackParamList;
 }
@@ -17,16 +18,16 @@ export interface NavItem {
  * here before the screen it points at exists.
  */
 export const NAV_ITEMS: NavItem[] = [
-  { key: 'chat', label: 'Chat', icon: 'chatbubbles-outline', route: 'Chat' },
-  { key: 'recipes', label: 'My Recipes', icon: 'book-outline', route: 'Recipes' },
-  { key: 'mealplan', label: 'Meal Plan', icon: 'calendar-outline', route: 'MealPlan' },
-  { key: 'grocery', label: 'Grocery List', icon: 'cart-outline', route: 'GroceryList' },
-  { key: 'pantry', label: 'Pantry', icon: 'file-tray-stacked-outline', route: 'Pantry' },
+  { key: 'chat', labelKey: 'nav.chat', icon: 'chatbubbles-outline', route: 'Chat' },
+  { key: 'recipes', labelKey: 'nav.recipes', icon: 'book-outline', route: 'Recipes' },
+  { key: 'mealplan', labelKey: 'nav.mealplan', icon: 'calendar-outline', route: 'MealPlan' },
+  { key: 'grocery', labelKey: 'nav.grocery', icon: 'cart-outline', route: 'GroceryList' },
+  { key: 'pantry', labelKey: 'nav.pantry', icon: 'file-tray-stacked-outline', route: 'Pantry' },
 ];
 
 export const PROFILE_NAV_ITEM: NavItem = {
   key: 'profile',
-  label: 'Profile',
+  labelKey: 'nav.profile',
   icon: 'person-circle-outline',
   route: 'Profile',
 };

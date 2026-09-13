@@ -15,6 +15,7 @@ import { useTheme, Theme } from '../context/ThemeContext';
 import { type } from '../theme';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useAlert } from '../context/AlertContext';
+import { useLanguage } from '../context/LanguageContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Preferences'>;
 
@@ -35,6 +36,7 @@ const PreferencesScreen: React.FC<Props> = () => {
   const [saving, setSaving] = useState(false);
   const { theme } = useTheme();
   const { showAlert } = useAlert();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
 
@@ -44,7 +46,7 @@ const PreferencesScreen: React.FC<Props> = () => {
         setPrefs(await apiService.getPreferences());
       } catch (error) {
         console.error('Error loading preferences:', error);
-        showAlert('Error', 'Failed to load preferences', 'error');
+        showAlert(t('common.error'), t('prefs.loadFailed'), 'error');
       } finally {
         setLoading(false);
       }
@@ -55,17 +57,17 @@ const PreferencesScreen: React.FC<Props> = () => {
     setSaving(true);
     try {
       setPrefs(await apiService.updatePreferences(prefs));
-      showAlert('Saved', 'Your preferences were updated', 'success');
+      showAlert(t('prefs.savedTitle'), t('prefs.savedBody'), 'success');
     } catch (error) {
       console.error('Error saving preferences:', error);
-      showAlert('Error', 'Failed to save preferences', 'error');
+      showAlert(t('common.error'), t('prefs.saveFailed'), 'error');
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) {
-    return <Loading visible={true} message="Loading..." />;
+    return <Loading visible={true} message={t('common.loading')} />;
   }
 
   return (
@@ -73,7 +75,7 @@ const PreferencesScreen: React.FC<Props> = () => {
       <PreferencesPanel value={prefs} onChange={setPrefs} />
 
       <TouchableOpacity style={[styles.saveButton, saving && styles.saveButtonDisabled]} onPress={handleSave} disabled={saving}>
-        <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
+        <Text style={styles.saveButtonText}>{saving ? t('common.saving') : t('common.save')}</Text>
       </TouchableOpacity>
     </ScrollView>
   );

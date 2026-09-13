@@ -16,6 +16,9 @@ import type { PlannedDay, PlannedMeal } from './DayCard';
  * labelling question ("a day you chose not to cook" vs "a day you cooked ahead for"), not a
  * data one.
  *
+ * `locale` is passed in rather than read off the i18n singleton, so this file stays pure and
+ * `planDays.check.ts` keeps running under plain node.
+ *
  * `priorDay` is the day *before* the window — a Monday's leftovers can point at Sunday's cook,
  * and without it that row cannot name the day it came from.
  */
@@ -26,8 +29,9 @@ export function buildWeek(args: {
   priorDay: MealPlanItem[];
   recipesById: Record<number, Recipe>;
   noCookDays: Weekday[];
+  locale: string;
 }): PlannedDay[] {
-  const { weekStart, today, itemsByDate, priorDay, recipesById, noCookDays } = args;
+  const { weekStart, today, itemsByDate, priorDay, recipesById, noCookDays, locale } = args;
   const todayISO = toISODate(today);
 
   // Everything the cache holds, not just this week: a leftover names its cook by id, and the
@@ -48,7 +52,7 @@ export function buildWeek(args: {
     const date = addDays(weekStart, i);
     const iso = toISODate(date);
     const items = itemsByDate[iso] ?? [];
-    const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
+    const weekday = date.toLocaleDateString(locale, { weekday: 'long' });
     const isNoCookDay = noCookDays.includes(weekdayName(date));
 
     const meals: PlannedMeal[] = items.map(item => {
@@ -58,7 +62,7 @@ export function buildWeek(args: {
         item,
         slot: item.meal_slot,
         kind: item.source_item_id == null ? 'cook' : isNoCookDay ? 'leftover' : 'batch',
-        carriedFrom: source ? weekdayLabel(source.planned_on) : undefined,
+        carriedFrom: source ? weekdayLabel(source.planned_on, locale) : undefined,
         // "Portion 2 of 3": how much is cooked belongs to the cooking day, so this is read,
         // never edited, on a leftover row (BACKLOG 9.11).
         portion: portions.length
@@ -76,7 +80,7 @@ export function buildWeek(args: {
     return {
       iso,
       weekday,
-      dateLabel: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      dateLabel: date.toLocaleDateString(locale, { month: 'short', day: 'numeric' }),
       isToday: iso === todayISO,
       isPast: iso < todayISO,
       meals,
@@ -89,7 +93,7 @@ const SLOT_ORDER = { breakfast: 0, lunch: 1, dinner: 2, snack: 3 } as const;
 const byDayThenSlot = (a: MealPlanItem, b: MealPlanItem): number =>
   a.planned_on.localeCompare(b.planned_on) || SLOT_ORDER[a.meal_slot] - SLOT_ORDER[b.meal_slot];
 
-const weekdayLabel = (iso: string): string => {
+const weekdayLabel = (iso: string, locale: string): string => {
   const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long' });
+  return new Date(y, m - 1, d).toLocaleDateString(locale, { weekday: 'long' });
 };

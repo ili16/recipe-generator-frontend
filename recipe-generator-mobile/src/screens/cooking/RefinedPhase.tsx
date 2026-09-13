@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { RecipeResponse } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
 import RecipeView from '../../components/RecipeView';
 import { makeChromeStyles } from './styles';
@@ -16,6 +17,7 @@ interface Props {
 
 const RefinedPhase: React.FC<Props> = ({ refined, saving, onBack, onSave, onDiscard }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const c = useMemo(() => makeChromeStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
@@ -25,7 +27,7 @@ const RefinedPhase: React.FC<Props> = ({ refined, saving, onBack, onSave, onDisc
         <TouchableOpacity onPress={onBack} style={c.headerSide}>
           <Text style={c.headerAction}>← Back</Text>
         </TouchableOpacity>
-        <Text style={c.headerTitle} numberOfLines={1}>Refined Recipe</Text>
+        <Text style={c.headerTitle} numberOfLines={1}>{t('cooking.refinedRecipe')}</Text>
         <View style={c.headerSide} />
       </View>
 
@@ -39,11 +41,11 @@ const RefinedPhase: React.FC<Props> = ({ refined, saving, onBack, onSave, onDisc
           {saving ? (
             <ActivityIndicator color={theme.onAccent} size="small" />
           ) : (
-            <Text style={c.primaryBtnText}>Save to My Recipes</Text>
+            <Text style={c.primaryBtnText}>{t('chat.saveToRecipes')}</Text>
           )}
         </TouchableOpacity>
         <TouchableOpacity style={c.secondaryBtn} onPress={onDiscard}>
-          <Text style={c.secondaryBtnText}>Discard</Text>
+          <Text style={c.secondaryBtnText}>{t('recipes.discard')}</Text>
         </TouchableOpacity>
       </View>
     </View>

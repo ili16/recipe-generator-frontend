@@ -5,18 +5,24 @@ import {
 } from 'react-native';
 import { Recipe } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
 import { fmtIngredient } from '../../components/RecipeView';
 import { Badge } from '../../components/ui';
-import { Ingredient, Step, formatTimer, getStepIngredients } from './steps';
+import {
+  Ingredient, phaseLabelKey, StepGroup, formatTimer, getStepIngredients, groupSpokenText,
+} from './steps';
 import { makeChromeStyles } from './styles';
 import { AskAiPanel, NotePanel, SavedNote } from './StepPanels';
+import { useHandsFree } from '../../hooks/useHandsFree';
 
 interface Props {
   recipe: Recipe;
-  steps: Step[];
+  groups: StepGroup[];
   ingredients: Ingredient[];
-  currentStep: number;
+  currentGroup: number;
+  /** Original step index this card's notes are keyed on. */
+  noteIndex: number;
   notes: Record<number, string>;
   onSaveNote: (idx: number, text: string) => void;
   onClose: () => void;
@@ -25,12 +31,14 @@ interface Props {
   onAsk: (question: string, stepText?: string) => Promise<string>;
 }
 
-// One cooking step at a time, with the two panels that hang off it: a note the user
-// takes, and a question to the AI about this step.
+// One card of cooking at a time — a single step, or the several a cook does at once —
+// with the two panels that hang off it: a note the user takes, and a question to the AI.
 const StepPhase: React.FC<Props> = ({
-  recipe, steps, ingredients, currentStep, notes, onSaveNote, onClose, onPrev, onNext, onAsk,
+  recipe, groups, ingredients, currentGroup, noteIndex, notes,
+  onSaveNote, onClose, onPrev, onNext, onAsk,
 }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const c = useMemo(() => makeChromeStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const scrollRef = useRef<ScrollView>(null);
@@ -39,17 +47,29 @@ const StepPhase: React.FC<Props> = ({
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [showAiInput, setShowAiInput] = useState(false);
 
-  const step = steps[currentStep];
+  const group = groups[currentGroup];
+  const parallel = (group?.steps.length ?? 0) > 1;
+  const spoken = group ? groupSpokenText(group, t) : '';
 
-  // Reset the AI/note panels when the step changes.
+  // The note input is uncontrolled by the parent, so hand onNext what is currently typed —
+  // same contract as the buttons below, which is why voice routes through this and not
+  // straight to the parent's `next`.
+  const noteRef = useRef(noteInput);
+  noteRef.current = noteInput;
+  const handsFree = useHandsFree({
+    text: spoken,
+    language: recipe.structured?.language,
+    onNext: () => onNext(noteRef.current),
+    onPrev,
+  });
+
+  // Reset the AI/note panels when the card changes.
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
     setShowAiInput(false);
     setShowNoteInput(false);
-    setNoteInput(notes[currentStep] ?? '');
-  }, [currentStep]);
-
-  const stepIngredients = step ? getStepIngredients(step, ingredients) : [];
+    setNoteInput(notes[noteIndex] ?? '');
+  }, [currentGroup]);
 
   return (
     <KeyboardAvoidingView
@@ -63,13 +83,13 @@ const StepPhase: React.FC<Props> = ({
         </TouchableOpacity>
         <Text style={c.headerTitle} numberOfLines={1}>{recipe.recipename}</Text>
         <Text style={styles.stepCounter}>
-          {steps.length > 0 ? `${currentStep + 1}/${steps.length}` : ''}
+          {groups.length > 0 ? `${currentGroup + 1}/${groups.length}` : ''}
         </Text>
       </View>
 
-      {steps.length > 1 && (
+      {groups.length > 1 && (
         <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${((currentStep + 1) / steps.length) * 100}%` as any }]} />
+          <View style={[styles.progressFill, { width: `${((currentGroup + 1) / groups.length) * 100}%` as any }]} />
         </View>
       )}
 
@@ -79,35 +99,72 @@ const StepPhase: React.FC<Props> = ({
         contentContainerStyle={styles.stepScrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        {step && (
-          <>
-            <Text style={styles.stepLabel}>Step {currentStep + 1}</Text>
-            <Text style={styles.stepText}>{step.step_text}</Text>
-
-            <View style={styles.badgeRow}>
-              {step.timer_seconds != null && step.timer_seconds > 0 && (
-                <Badge label={`⏱ ${formatTimer(step.timer_seconds)}`} />
-              )}
-              {step.temperature_c != null && step.temperature_c > 0 && (
-                <Badge label={`🌡️ ${step.temperature_c}°C`} />
+        {group && (
+          // Tapping the card re-reads it — the hands-free "repeat", available without
+          // saying anything, and the tap-to-advance-adjacent target on native where
+          // there is no listening.
+          <TouchableOpacity
+            activeOpacity={handsFree.enabled ? 0.7 : 1}
+            onPress={handsFree.enabled ? handsFree.repeat : undefined}
+          >
+            <View style={styles.cardHeader}>
+              <Text style={styles.stepLabel}>
+                {group.phase ? t(phaseLabelKey(group.phase)) : t('cooking.stepNumber', { number: currentGroup + 1 })}
+              </Text>
+              {group.timerSeconds != null && group.timerSeconds > 0 && (
+                <Text style={styles.cardTimer}>⏱ {formatTimer(group.timerSeconds)}</Text>
               )}
             </View>
 
-            {stepIngredients.length > 0 && (
-              <View style={styles.stepIngSection}>
-                <Text style={styles.stepIngLabel}>You'll need</Text>
-                <View style={styles.stepIngChips}>
-                  {stepIngredients.map((ing, i) => (
-                    <Badge
-                      key={i}
-                      tone="neutral"
-                      label={`${fmtIngredient(ing)}${ing.optional ? ' (optional)' : ''}`}
-                    />
-                  ))}
+            {/* The one thing the card has to say when it holds more than one step: these
+                are not consecutive, they overlap. */}
+            {parallel && <Text style={styles.parallelLabel}>{t('cooking.atTheSameTimeShort')}</Text>}
+
+            {group.steps.map((step, i) => {
+              const stepIngredients = getStepIngredients(step, ingredients);
+              return (
+                <View
+                  key={step.sort_order}
+                  style={[styles.track, parallel && i > 0 && styles.trackDivided]}
+                >
+                  <View style={styles.trackHead}>
+                    {parallel && <Text style={styles.trackNumber}>{i + 1}</Text>}
+                    <Text style={[styles.stepText, parallel && styles.stepTextParallel]}>
+                      {step.step_text}
+                    </Text>
+                  </View>
+
+                  {/* A track's own timer only earns its place next to the group's when
+                      the tracks differ — otherwise it is the same number twice. */}
+                  {((parallel && (step.timer_seconds ?? 0) > 0) || (step.temperature_c ?? 0) > 0) && (
+                    <View style={styles.badgeRow}>
+                      {parallel && step.timer_seconds != null && step.timer_seconds > 0 && (
+                        <Badge label={`⏱ ${formatTimer(step.timer_seconds)}`} />
+                      )}
+                      {step.temperature_c != null && step.temperature_c > 0 && (
+                        <Badge label={`🌡️ ${step.temperature_c}°C`} />
+                      )}
+                    </View>
+                  )}
+
+                  {stepIngredients.length > 0 && (
+                    <View style={styles.stepIngSection}>
+                      <Text style={styles.stepIngLabel}>{t('cooking.youWillNeed')}</Text>
+                      <View style={styles.stepIngChips}>
+                        {stepIngredients.map((ing, j) => (
+                          <Badge
+                            key={j}
+                            tone="neutral"
+                            label={`${fmtIngredient(ing)}${ing.optional ? ` ${t('cooking.optional')}` : ''}`}
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  )}
                 </View>
-              </View>
-            )}
-          </>
+              );
+            })}
+          </TouchableOpacity>
         )}
 
         {showNoteInput ? (
@@ -115,23 +172,23 @@ const StepPhase: React.FC<Props> = ({
             value={noteInput}
             onChange={setNoteInput}
             onSave={() => {
-              onSaveNote(currentStep, noteInput);
+              onSaveNote(noteIndex, noteInput);
               setShowNoteInput(false);
             }}
             onCancel={() => setShowNoteInput(false)}
           />
-        ) : notes[currentStep] ? (
+        ) : notes[noteIndex] ? (
           <SavedNote
-            note={notes[currentStep]}
+            note={notes[noteIndex]}
             onEdit={() => {
-              setNoteInput(notes[currentStep]);
+              setNoteInput(notes[noteIndex]);
               setShowNoteInput(true);
             }}
           />
         ) : null}
 
         {showAiInput && (
-          <AskAiPanel onAsk={onAsk} stepText={step?.step_text} />
+          <AskAiPanel onAsk={onAsk} stepText={spoken} />
         )}
       </ScrollView>
 
@@ -143,7 +200,7 @@ const StepPhase: React.FC<Props> = ({
             if (showAiInput) setShowAiInput(false);
           }}
         >
-          <Text style={styles.actionBtnText}>📝 Note</Text>
+          <Text style={styles.actionBtnText}>{t('cooking.note')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionBtn, showAiInput && styles.actionBtnActive]}
@@ -152,21 +209,41 @@ const StepPhase: React.FC<Props> = ({
             if (showNoteInput) setShowNoteInput(false);
           }}
         >
-          <Text style={styles.actionBtnText}>✨ Ask AI</Text>
+          <Text style={styles.actionBtnText}>{t('cooking.askAi')}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionBtn, handsFree.enabled && styles.actionBtnActive]}
+          onPress={handsFree.toggle}
+        >
+          <Text style={styles.actionBtnText}>
+            {t(handsFree.enabled
+              ? (handsFree.listening ? 'cooking.listening' : 'cooking.reading')
+              : 'cooking.handsFree')}
+          </Text>
         </TouchableOpacity>
       </View>
 
+      {/* Say what the mode can actually do here, rather than leaving the cook talking to a
+          phone that was never listening: continuous recognition is web-only today. */}
+      {handsFree.enabled && (
+        <Text style={styles.handsFreeHint}>
+          {handsFree.listening
+            ? t('cooking.handsFreeListening')
+            : t('cooking.handsFreeReading')}
+        </Text>
+      )}
+
       <View style={styles.navBar}>
         <TouchableOpacity
-          style={[styles.navBtnPrev, currentStep === 0 && styles.navBtnDisabled]}
+          style={[styles.navBtnPrev, currentGroup === 0 && styles.navBtnDisabled]}
           onPress={onPrev}
-          disabled={currentStep === 0}
+          disabled={currentGroup === 0}
         >
-          <Text style={[styles.navBtnPrevText, currentStep === 0 && styles.navBtnTextDisabled]}>← Prev</Text>
+          <Text style={[styles.navBtnPrevText, currentGroup === 0 && styles.navBtnTextDisabled]}>{t('cooking.prev')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navBtnNext} onPress={() => onNext(noteInput)}>
           <Text style={styles.navBtnNextText}>
-            {currentStep === steps.length - 1 ? 'Finish ✓' : 'Next →'}
+            {t(currentGroup === groups.length - 1 ? 'cooking.finish' : 'cooking.next')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -193,23 +270,73 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     padding: 24,
     paddingBottom: 20,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
   stepLabel: {
     ...type.label, fontSize: 13,
     color: t.accent,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-    marginBottom: 14,
+  },
+  cardTimer: {
+    ...type.label, fontSize: 13,
+    color: t.muted,
+  },
+  parallelLabel: {
+    ...type.body, fontSize: 14,
+    color: t.subtext,
+    marginBottom: 10,
+  },
+  // One concurrent step. The divider is what separates two things happening at once from
+  // two paragraphs of the same instruction.
+  track: {
+    marginBottom: 8,
+  },
+  trackDivided: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: t.border,
+    paddingTop: 16,
+  },
+  trackHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  trackNumber: {
+    ...type.label, fontSize: 15,
+    color: t.accent,
+    lineHeight: 28,
+    minWidth: 16,
   },
   stepText: {
     ...type.title, fontSize: 22,
     lineHeight: 32,
     color: t.text,
     marginBottom: 20,
+    flexShrink: 1,
+  },
+  // Tracks are read together, so each one is a touch smaller than a lone step.
+  stepTextParallel: {
+    fontSize: 19,
+    lineHeight: 28,
+    marginBottom: 12,
   },
   badgeRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 16,
+  },
+  handsFreeHint: {
+    ...type.body, fontSize: 12,
+    color: t.muted,
+    textAlign: 'center',
+    paddingTop: 8,
+    backgroundColor: t.bg,
   },
   stepIngSection: {
     marginBottom: 20,

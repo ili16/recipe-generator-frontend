@@ -3,6 +3,7 @@ import { View, Text, ActivityIndicator } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useTheme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { useCookingSession } from '../hooks/useCookingSession';
 import { makeChromeStyles } from './cooking/styles';
 import OverviewPhase from './cooking/OverviewPhase';
@@ -14,16 +15,26 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CookingMode'>;
 
 const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const c = useMemo(() => makeChromeStyles(theme), [theme]);
   const s = useCookingSession(route.params.recipe, () => navigation.navigate('Recipes'));
 
   if (s.phase === 'loading' || s.phase === 'refining') {
     const refining = s.phase === 'refining';
+    const flow = s.refineOrigin.current === 'overview';
     return (
       <View style={[c.container, c.centered]}>
         <ActivityIndicator size="large" color={theme.accent} />
-        <Text style={c.loadingText}>{refining ? 'Refining your recipe...' : 'Loading recipe...'}</Text>
-        {refining && <Text style={c.loadingSubtext}>AI is incorporating your cooking notes</Text>}
+        <Text style={c.loadingText}>
+          {t(!refining ? 'cooking.loadingRecipe' : flow ? 'cooking.planningFlow' : 'cooking.refining')}
+        </Text>
+        {refining && (
+          <Text style={c.loadingSubtext}>
+            {flow
+              ? t('cooking.planningFlowHint')
+              : t('cooking.refiningHint')}
+          </Text>
+        )}
       </View>
     );
   }
@@ -33,7 +44,7 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
       <RefinedPhase
         refined={s.refinedRecipe}
         saving={s.saving}
-        onBack={() => s.setPhase('done')}
+        onBack={() => s.setPhase(s.refineOrigin.current)}
         onSave={s.saveRefined}
         onDiscard={() => navigation.navigate('Recipes')}
       />
@@ -58,10 +69,11 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
       <OverviewPhase
         recipe={s.recipe}
         structured={s.structured}
-        steps={s.steps}
+        groups={s.groups}
+        onPlanFlow={s.planFlow}
         onClose={() => navigation.goBack()}
         onStart={() => {
-          s.setCurrentStep(0);
+          s.setCurrentGroup(0);
           s.setPhase('cooking');
         }}
       />
@@ -71,9 +83,10 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
   return (
     <StepPhase
       recipe={s.recipe}
-      steps={s.steps}
+      groups={s.groups}
       ingredients={s.ingredients}
-      currentStep={s.currentStep}
+      currentGroup={s.currentGroup}
+      noteIndex={s.noteIndex}
       notes={s.notes}
       onSaveNote={s.setNote}
       onClose={() => s.setPhase('overview')}

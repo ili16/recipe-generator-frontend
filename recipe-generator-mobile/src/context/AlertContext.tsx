@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, Theme } from './ThemeContext';
+import { useLanguage } from './LanguageContext';
 import { type } from '../theme';
 
 /** Omit it for a neutral alert; the caller always knows which it is. */
@@ -56,6 +57,8 @@ export function AlertProvider({ children }: { children: ReactNode }) {
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const { theme: t } = useTheme();
+  // `t` is already the theme here, so the translator keeps its own name.
+  const { t: translate } = useLanguage();
   const styles = useMemo(() => makeStyles(t), [t]);
 
   const open = (cfg: AlertConfig) => {
@@ -120,7 +123,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
             <View style={[styles.buttonRow, config?.isConfirm && styles.buttonRowDual]}>
               {config?.isConfirm && (
                 <TouchableOpacity style={styles.btnCancel} onPress={() => close(false)}>
-                  <Text style={styles.btnCancelText}>Cancel</Text>
+                  <Text style={styles.btnCancelText}>{translate('common.cancel')}</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity

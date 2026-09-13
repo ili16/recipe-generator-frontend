@@ -6,11 +6,12 @@ import apiService from '../../services/apiService';
 import { Recipe, MealPlanItem, MealSlot, MEAL_SLOTS } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { useMealPlanContext } from '../../context/MealPlanContext';
 import { toISODate, addDays, startOfWeek } from '../../utils/mealPlanDates';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import RecipePickerModal from './RecipePickerModal';
-import DayCard, { SLOT_LABEL } from './DayCard';
+import DayCard, { slotLabelKey } from './DayCard';
 import { buildWeek } from './planDays';
 import { usePreferences } from '../../hooks/usePreferences';
 import { radius, space } from '../../theme';
@@ -59,6 +60,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
 
   const { theme } = useTheme();
   const { showAlert, confirmAction } = useAlert();
+  const { t, locale } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   useEffect(() => { ensureRange(fetchStartISO, weekEndISO); }, [fetchStartISO, weekEndISO, ensureRange]);
@@ -87,9 +89,14 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     setPicker(null);
     if (taken) {
       const ok = await confirmAction(
-        'Replace this meal?',
-        `${SLOT_LABEL[slot]} on ${dayOf(iso)?.weekday ?? iso} is ${taken.title}. Planning ${recipe.recipename} removes it.`,
-        { confirmLabel: 'Replace', destructive: true },
+        t('plan.replaceMealTitle'),
+        t('plan.replaceMealBody', {
+          slot: t(slotLabelKey(slot)),
+          day: dayOf(iso)?.weekday ?? iso,
+          current: taken.title,
+          next: recipe.recipename,
+        }),
+        { confirmLabel: t('plan.replace'), destructive: true },
       );
       if (!ok) return;
     }
@@ -97,7 +104,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
       upsertItem(await apiService.addMealPlanItem(recipe.id, iso, undefined, slot));
     } catch (error) {
       console.error('Error assigning recipe:', error);
-      showAlert('Error', 'Failed to add recipe to plan', 'error');
+      showAlert(t('common.error'), t('plan.addFailed'), 'error');
     }
   };
 
@@ -110,7 +117,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
       upsertItem(await apiService.addMealPlanItem(item.recipe_id, item.planned_on, servings, item.meal_slot));
     } catch (error) {
       console.error('Error setting servings:', error);
-      showAlert('Error', 'Failed to change servings', 'error');
+      showAlert(t('common.error'), t('plan.servingsFailed'), 'error');
     }
   };
 
@@ -127,9 +134,12 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     setCovers(null);
     if (replacing.length) {
       const ok = await confirmAction(
-        'Replace those meals?',
-        `${replacing.map(m => m!.title).join(', ')} would be replaced by leftovers of ${item.recipe_title}.`,
-        { confirmLabel: 'Replace', destructive: true },
+        t('plan.replaceMealsTitle'),
+        t('plan.replaceMealsBody', {
+          meals: replacing.map(m => m!.title).join(', '),
+          recipe: item.recipe_title,
+        }),
+        { confirmLabel: t('plan.replace'), destructive: true },
       );
       if (!ok) return;
     }
@@ -145,7 +155,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
       ensureRange(fetchStartISO, weekEndISO);
     } catch (error) {
       console.error('Error setting batch cook:', error);
-      showAlert('Error', 'Failed to change which days this covers', 'error');
+      showAlert(t('common.error'), t('plan.coversFailed'), 'error');
     }
   };
 
@@ -156,7 +166,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
       removeItem(item);
     } catch (error) {
       console.error('Error removing meal plan item:', error);
-      showAlert('Error', 'Failed to remove recipe from plan', 'error');
+      showAlert(t('common.error'), t('plan.removeFailed'), 'error');
     }
   };
 
@@ -166,13 +176,14 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   );
 
   const days = useMemo(() => buildWeek({
+    locale,
     weekStart,
     today: new Date(),
     itemsByDate,
     priorDay: itemsByDate[fetchStartISO] ?? [],
     recipesById,
     noCookDays: prefs?.meal_plan_no_cook_days ?? [],
-  }), [weekStart, itemsByDate, fetchStartISO, recipesById, prefs?.meal_plan_no_cook_days]);
+  }), [locale, weekStart, itemsByDate, fetchStartISO, recipesById, prefs?.meal_plan_no_cook_days]);
 
   const dayOf = (iso: string) => days.find(d => d.iso === iso);
   const mealAt = (iso: string, slot: MealSlot) => dayOf(iso)?.meals.find(m => m.slot === slot);
@@ -196,21 +207,21 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
             onPress={() => onChangeDate(addDays(selectedDate, -7))}
             style={styles.navButton}
             accessibilityRole="button"
-            accessibilityLabel="Previous week"
+            accessibilityLabel={t('plan.previousWeek')}
           >
             <Ionicons name="chevron-back" size={16} color={theme.subtext} />
           </TouchableOpacity>
           <Text variant="caption" tone="subtle">
-            {weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            {weekStart.toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
             {' – '}
-            {addDays(weekStart, 6).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-            {`  ·  ${planned} of 7 planned`}
+            {addDays(weekStart, 6).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
+            {`  ·  ${t('plan.plannedOfSeven', { count: planned })}`}
           </Text>
           <TouchableOpacity
             onPress={() => onChangeDate(addDays(selectedDate, 7))}
             style={styles.navButton}
             accessibilityRole="button"
-            accessibilityLabel="Next week"
+            accessibilityLabel={t('plan.nextWeek')}
           >
             <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
           </TouchableOpacity>
@@ -231,7 +242,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
         ))}
 
         <Button
-          title={planned === 0 ? 'Plan my week' : 'Re-plan this week'}
+          title={t(planned === 0 ? 'plan.planMyWeek' : 'plan.rePlanWeek')}
           variant="secondary"
           fullWidth
           icon={<Ionicons name="sparkles" size={16} color={theme.text} />}
@@ -243,7 +254,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
           onPress={() => navigation.navigate('Preferences')}
           accessibilityRole="button"
         >
-          <Text variant="caption" tone="accent">Planning preferences</Text>
+          <Text variant="caption" tone="accent">{t('plan.planningPreferences')}</Text>
           <Ionicons name="chevron-forward" size={14} color={theme.accent} />
         </TouchableOpacity>
       </ScrollView>
@@ -251,13 +262,13 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
       <Sheet visible={sheetMeal !== null} onClose={() => setSheetKey(null)} title={sheetWeekday}>
         {sheetItem && (
           <View style={styles.servingsRow}>
-            <Text variant="body">Cooking for</Text>
+            <Text variant="body">{t('plan.cookingFor')}</Text>
             <View style={styles.stepper}>
               <TouchableOpacity
                 style={styles.stepperBtn}
                 onPress={() => setServings(sheetItem, sheetServings - 1)}
                 accessibilityRole="button"
-                accessibilityLabel="One fewer serving"
+                accessibilityLabel={t('plan.oneFewerServing')}
               >
                 <Ionicons name="remove" size={16} color={theme.accent} />
               </TouchableOpacity>
@@ -266,7 +277,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
                 style={styles.stepperBtn}
                 onPress={() => setServings(sheetItem, sheetServings + 1)}
                 accessibilityRole="button"
-                accessibilityLabel="One more serving"
+                accessibilityLabel={t('plan.oneMoreServing')}
               >
                 <Ionicons name="add" size={16} color={theme.accent} />
               </TouchableOpacity>
@@ -275,14 +286,14 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
         )}
         {sheetMeal && (
           <SheetRow
-            label="Ask the assistant"
+            label={t('plan.askAssistant')}
             onPress={() => askAssistant(
               `Change ${sheetWeekday} ${sheetMeal.item.planned_on} ${sheetMeal.slot} — it's currently ${sheetMeal.title}.`)}
           />
         )}
         {sheetItem && sheetMeal?.kind === 'cook' && (
           <SheetRow
-            label="Cook for more than one day"
+            label={t('plan.cookForMoreDays')}
             onPress={() => {
               setCovers({
                 item: sheetItem,
@@ -294,12 +305,12 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
             }}
           />
         )}
-        {sheetItem && <SheetRow label="Clear" destructive onPress={() => clear(sheetItem)} />}
+        {sheetItem && <SheetRow label={t('common.clear')} destructive onPress={() => clear(sheetItem)} />}
       </Sheet>
 
       {/* Which meal the new dish is — asked only when adding a second one, since the
           empty card and Swap already know the slot they mean. */}
-      <Sheet visible={slotChoiceDay !== null} onClose={() => setSlotChoiceDay(null)} title="Which meal?">
+      <Sheet visible={slotChoiceDay !== null} onClose={() => setSlotChoiceDay(null)} title={t('plan.whichMeal')}>
         {MEAL_SLOTS.map(slot => {
           // A slot that is taken says so and says what it would cost, rather than reading
           // like the three empty ones next to it (BACKLOG 9.10).
@@ -307,7 +318,9 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
           return (
             <SheetRow
               key={slot}
-              label={taken ? `Replace ${SLOT_LABEL[slot].toLowerCase()} · ${taken.title}` : SLOT_LABEL[slot]}
+              label={taken
+                ? t('plan.replaceSlot', { slot: t(slotLabelKey(slot)).toLowerCase(), title: taken.title })
+                : t(slotLabelKey(slot))}
               destructive={!!taken}
               onPress={() => {
                 setPicker({ iso: slotChoiceDay!, slot });
@@ -320,7 +333,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
 
       {/* Tick the days this pot covers. Reopening it on a day that already batch-cooks
           shows what it covers now, so unticking is the undo (BACKLOG 9.13). */}
-      <Sheet visible={covers !== null} onClose={() => setCovers(null)} title="Which days does this cover?">
+      <Sheet visible={covers !== null} onClose={() => setCovers(null)} title={t('plan.whichDaysCovered')}>
         <View style={styles.coverDays}>
           {days.filter(d => covers && d.iso > covers.item.planned_on).map(d => (
             <Chip
@@ -336,10 +349,14 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
         </View>
         {prefs?.household_size != null && covers && (
           <Text variant="caption" tone="subtle">
-            {`Cooking for ${prefs.household_size * (1 + covers.picked.length)} — ${prefs.household_size} people × ${1 + covers.picked.length} days`}
+            {t('plan.coversSummary', {
+              total: prefs.household_size * (1 + covers.picked.length),
+              people: prefs.household_size,
+              days: 1 + covers.picked.length,
+            })}
           </Text>
         )}
-        <Button title="Confirm" fullWidth onPress={applyCovers} />
+        <Button title={t('plan.confirm')} fullWidth onPress={applyCovers} />
       </Sheet>
 
       <RecipePickerModal

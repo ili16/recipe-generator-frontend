@@ -27,6 +27,7 @@ for changes is `recipe-generator-mobile/src/`.
 | Audio | `expo-av` (`Audio.Recording`) |
 | Icons | `@expo/vector-icons` (Ionicons) |
 | Markdown | `react-native-markdown-display` |
+| i18n | `i18n-js` v4 + `expo-localization` (English / German — BACKLOG Phase 14) |
 
 ## Local Runbook
 
@@ -68,6 +69,15 @@ src/
 │   │                             artifact card, OverviewPhase (showSteps={false}) and
 │   │                             RefinedPhase all go through it. Never render a recipe
 │   │                             any other way
+│   ├── FeedbackSheet.tsx       — the report-a-problem form (BACKLOG 9.16). Mounted ONCE in
+│   │                             AppShell so the top bar and the rail open one instance.
+│   │                             Works logged out; the email field appears only then, and
+│   │                             is never required. Takes an optional screenshot — paste
+│   │                             on web, expo-image-picker elsewhere. Also exports
+│   │                             collectContext() and attachedSummary()
+│   ├── FeedbackPulse.tsx       — the occasional "how is this going" card (9.16): inline at
+│   │                             the top of chat, never a modal. The thumb POSTs before the
+│   │                             follow-up box appears — do not reorder that
 │   ├── Sidebar.tsx             — the wide-web nav rail. Fully themed; the model to copy for
 │   │                             new components. Its drawer variant died with BACKLOG 5.7
 │   └── ui/index.tsx            — the primitives (5.3) and the shared pills (5.8): Button, Card,
@@ -78,18 +88,40 @@ src/
 ├── constants/
 │   ├── index.ts                — config, endpoint strings, storage keys
 │   ├── mealPlanPrefs.ts        — WEEKDAYS / BATCH_DAYS_OPTIONS
-│   └── tags.ts                 — the 38-slug tag taxonomy, mirrors the Go constant
+│   ├── tags.ts                 — the 40-slug tag taxonomy, mirrors the Go constant, plus
+│   │                             mealTypeSlug() — the card's category badge. Slugs only:
+│   │                             the words are in `i18n` under `tags.slug.*`
+│   └── tags.check.ts           — assert script for mealTypeSlug
+├── i18n/
+│   ├── index.ts                — the `i18n-js` instance, `deviceLanguage()` and
+│   │                             `currentLocale()`. **Every user-facing string in the app
+│   │                             lives in the catalogs — never hardcode one in a component**
+│   ├── en.ts                   — the English catalog, and the shape `de.ts` must satisfy
+│   ├── de.ts                   — typed `typeof en`, so a missing German key fails `tsc`
+│   └── catalog.check.ts        — assert script: key parity, no empty values, matching
+│                                 `%{placeholders}`, plural forms in pairs
 ├── context/
 │   ├── AlertContext.tsx        — promise-based showAlert/confirmAction modal
+│   ├── LanguageContext.tsx     — `'system' | 'en' | 'de'`, persisted under
+│   │                             `STORAGE_KEYS.LANGUAGE`; gives `{locale, mode, setMode, t}`.
+│   │                             Components MUST take `t` from here (a module-level `t()`
+│   │                             would freeze the first language). Non-components take `t`
+│   │                             as an argument, or read `currentLocale()` at call time
 │   ├── MealPlanContext.tsx     — itemsByDate/recipes cache shared by the planner views
 │   └── ThemeContext.tsx        — 13 colour tokens; see "Theme System" below
 ├── hooks/
-│   ├── useCookingSession.ts    — the cooking run: phase, step, notes, and the one agent
-│   │                             thread its AI refine and "Ask AI" questions share (3.13)
+│   ├── useCookingSession.ts    — the cooking run: phase, the current step GROUP (12.0 —
+│   │                             it walks groupSteps, not steps), notes (still keyed on the
+│   │                             original step index), and the one agent thread its AI
+│   │                             refine, "Ask AI" and planFlow share (3.13)
 │   ├── useRecipeLibrary.ts     — the saved-recipe list, its cache, and every mutation on it,
 │   │                             plus the trash (8.2) and collections (8.1) that hang off it
 │   ├── useEscapeBack.ts        — web: Escape key → goBack
-│   └── useVoiceInput.ts        — the three voice implementations behind one interface
+│   ├── useVoiceInput.ts        — the three voice implementations behind one interface
+│   └── useHandsFree.ts         — cooking hands-free (12.0): expo-speech reads the card
+│                                 aloud everywhere; next/back/repeat by voice is web-only
+│                                 (continuous SpeechRecognition), and `listening` says
+│                                 which of the two you actually got
 ├── navigation/
 │   ├── AppNavigator.tsx        — native stack; RootStackParamList
 │   ├── AppShell.tsx            — layout shell above the navigator: the Sidebar rail on wide
@@ -109,9 +141,11 @@ src/
 │   ├── CookingModeScreen.tsx   — phase switch only; the 6 phases live in screens/cooking/
 │   │                             and hooks/useCookingSession (BACKLOG 5.0). 84 lines
 │   ├── cooking/                — OverviewPhase, StepPhase (+ StepPanels), DonePhase,
-│   │                             RefinedPhase, steps.ts (getStepIngredients + formatTimer;
-│   │                             5.4 deleted the two markdown parsers that used to live
-│   │                             here, hence the rename from parse.ts), styles.ts (chrome)
+│   │                             RefinedPhase, steps.ts (getStepIngredients + formatTimer,
+│   │                             plus 12.0's groupSteps/phaseSummary — THE logic here, see
+│   │                             steps.check.ts; 5.4 deleted the two markdown parsers that
+│   │                             used to live here, hence the rename from parse.ts),
+│   │                             styles.ts (chrome)
 │   ├── ProfileScreen.tsx       — user info + logout
 │   ├── PreferencesScreen.tsx   — wraps PreferencesPanel
 │   ├── LoginScreen.tsx         — Keycloak login trigger
@@ -153,6 +187,15 @@ src/
     ├── pantryExpiry.ts         — days-until/label maths for the pantry (7.4), with
     │                             pantryExpiry.check.ts as its assert script
     ├── recipeOrigin.ts         — "From seriouseats.com · 8 Sep" for a saved recipe (3.7)
+    ├── chatArtifacts.ts        — foldArtifact(): keys recipe artifacts by draft_ref across the
+    │                             whole thread, so a save updates the card instead of adding one
+    │                             (chatArtifacts.check.ts is its assert script)
+    ├── feedbackPrompt.ts       — WHEN to show the pulse card (9.16). Pure, no imports, so
+    │                             feedbackPrompt.check.ts runs under plain node. The numbers
+    │                             are published vendor/platform defaults — the file says which
+    ├── feedbackPromptStore.ts  — its AsyncStorage half. The key is deliberately NOT in
+    │                             STORAGE_KEYS: clearSession() wipes those, which would make
+    │                             logging out a reset button on the nag
     ├── recipesCache.ts         — saved-recipe cache
     └── recipeTime.ts           — total/prep/cook minute display logic
 ```
@@ -188,7 +231,8 @@ Do not bypass this pattern when adding new authenticated calls.
 
 | Method | Path | Body / Params | Auth | Return |
 |--------|------|---------------|------|--------|
-| POST | `chat` | `{conversation_id, message, language?, attachments?}` — `language` is the device locale from `expo-localization`, sent on every turn (BACKLOG 3.9: the only locale signal the backend has left); an attachment is an attachment is `{type:'url',url}` or `{type:'image',data}` (data URL or bare base64, inline; max 3, 12 MiB body) | optional | SSE — `token` / `tool_start` / `tool_end` / `artifact` / `done`; the thread lives server-side, the client keeps only `conversation_id`. `ChatScreen` also accepts a `{prompt}` route param and sends it as a turn on arrival — how the planner hands a day or a week over |
+| POST | `chat` | `{conversation_id, message, language?, attachments?}` — `language` is the app's current UI language (`i18n.currentLocale()`, which starts at the device locale and follows the Profile switch), sent on every turn (BACKLOG 3.9: the only locale signal the backend has left); an attachment is an attachment is `{type:'url',url}` or `{type:'image',data}` (data URL or bare base64, inline; max 3, 12 MiB body) | optional | SSE — `token` / `tool_start` / `tool_end` / `artifact` / `done`; the thread lives server-side, the client keeps only `conversation_id`. `ChatScreen` also accepts a `{prompt}` route param and sends it as a turn on arrival — how the planner hands a day or a week over |
+| POST | `chat/drafts/save` | `{conversation_id, draft_ref, tags?}` — saves a recipe the agent drafted in the thread, with no model call. Idempotent per `draft_ref` (same path as the `save_recipe` tool), `404 {code:'draft_expired'}` once the server has forgotten the draft (2h TTL, or a restart) | required | `Recipe` |
 | PATCH | `update-recipe` | `{id, structured, ai_sourced?, change_prompt?}` | required | `Recipe` |
 | GET | `get-recipes` | — | required | `Recipe[]` |
 | POST | `add-recipe` | `{recipename, recipe, structured, origin?, history?, variant_of_recipe_id?}` — `structured` is **required** since BACKLOG 3.11; the only caller left is `acceptVariant` | required | `Recipe` |
@@ -196,6 +240,7 @@ Do not bypass this pattern when adding new authenticated calls.
 | GET | `recipes/:id` | — | required | `Recipe` |
 | PUT / DELETE | `recipes/:id/vote` | `{vote: 1 \| -1}` / — | required | like / dislike, surfaced as `Recipe.my_vote` |
 | POST | `transcribe` | audio `FormData` | optional | `{text}` — voice input |
+| POST | `feedback` | `{kind:'bug'\|'idea'\|'pulse', message?, sentiment?, contact?, context?, screenshot?}` — the app's only **optional-auth write**: an anonymous report stores `user_id NULL` rather than 401ing. `screenshot` is a data: URL, sniffed server-side and capped at 5 MB (`413`). 8 MB body cap, its own rate limiter (BACKLOG 9.16) | optional | `204` |
 | GET | `usage` | — | required | `{spent_usd, cap_usd, period_start, pct_used}` |
 | GET | `recipes/:id/history` | — | required | `RecipeVersion[]` (newest first; `change_note` holds the AI prompt for `ai_edit` entries) |
 | GET | `meal-plan?starts_on=&ends_on=` | `ends_on` optional (defaults to `starts_on+6d`) | required | `MealPlanWeek` — `{starts_on, ends_on, items[]}`, one recipe per day, up to 42-day range |
@@ -213,7 +258,7 @@ The backend provisions users just-in-time from the JWT `sub` claim; there is no 
 ## Key Types (`types/index.ts`)
 
 - `Recipe` — `{id, recipename, recipe, tags?, structured?, manually_edited?, my_vote?, variant_of_recipe_id?, source_type?, source_url?, created_at?}` — persisted DB record; the last three are read-only provenance, rendered by `utils/recipeOrigin.originLabel`
-- `RecipeDocument` — structured parse: `{title, summary, language, tags, servings, total_minutes, prep_minutes, cook_minutes, difficulty, ingredients[], steps[]}` (`total_minutes` is elapsed time until the food is ready to eat — not necessarily `prep_minutes + cook_minutes`; see `utils/recipeTime.ts`)
+- `RecipeDocument` — structured parse: `{title, summary, language, tags, servings, total_minutes, prep_minutes, cook_minutes, difficulty, ingredients[], steps[]}` (`total_minutes` is elapsed time until the food is ready to eat — not necessarily `prep_minutes + cook_minutes`; see `utils/recipeTime.ts`). A step carries `phase` (`'prep'|'cook'|'wait'`) and `parallel_group` since BACKLOG 12.0 — **both are optional and null on every recipe saved before it**, which `groupSteps` renders as the old flat one-step-per-screen walk
 - `RecipeResponse` — `{recipename, recipe, structured?}` — generation endpoint response
 - `GenerationOrigin` / `EditTurn` — the resent-conversation types; both disappear once the agent loop holds threads server-side
 - `PatchRecipePayload` — PATCH body for manual edits
@@ -264,9 +309,10 @@ document.
 **Deleted by 3.9/3.10/3.11** (2026-09-11): `declineGeneration` and the
 `DECLINE_GENERATION` constant (the whole `generation_events` funnel went with them
 server-side), `saveRecipe`'s `generationId` parameter, and `Recipe.generation_id`. The
-locale that 3.5 stopped sending is back, but on `/chat` rather than `/generate`:
-`apiService` reads `getLocales()[0].languageCode` once at module load and puts it on every
-turn, which is what keeps `expo-localization` a live dependency.
+locale that 3.5 stopped sending is back, but on `/chat` rather than `/generate`. Since
+Phase 14 it is read **per turn** from `src/i18n` rather than once at module load, so the
+Profile language switch changes what the model writes back as well as the chrome;
+`expo-localization` is still what supplies the default.
 
 ## Theme System
 
@@ -319,6 +365,10 @@ The replacement token set (warm palette, semantic slots, real scales, primitives
   tolerates a malformed frame, and takes an `AbortSignal` (`streamChat` aborts on unmount).
 - **The bottom tab bar does not hide on keyboard open** — on Android (`adjustResize`) it costs
   ~56px while typing in the composer. Marked `ponytail:` in `AppShell.tsx`.
+- **No user-facing string outside `src/i18n/`** (Phase 14). A component takes `t` from
+  `useLanguage()`; a pure helper takes `t` as an argument (`expiryLabel`, `groupSpokenText`,
+  `summarizeVersionChange`, `originLabel`) or a `locale` (`buildWeek`) so its check script
+  still runs under plain node. `src/i18n/catalog.check.ts` is the gate.
 - **Every screen now goes through the `type` scale** (`../BACKLOG.md` 5.9): no `fontSize` outside
   `src/theme/` and `components/ui/` stands alone — each spreads a variant and overrides the size
   only where the design needs one. Keep it that way; 5.9's grep is the gate. The one intentional

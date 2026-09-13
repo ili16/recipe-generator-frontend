@@ -12,6 +12,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import authService, { AuthMode } from '../services/authService';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { type } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
@@ -19,6 +20,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const handleLogin = async (mode: AuthMode) => {
@@ -31,14 +33,14 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
       if (profile) {
-        Alert.alert('Welcome!', `Logged in as ${profile.name}`);
+        Alert.alert(t('login.welcome'), t('login.loggedInAs', { name: profile.name }));
         navigation.goBack();
       } else {
-        Alert.alert('Login Failed', 'Unable to authenticate. Please try again.');
+        Alert.alert(t('login.failed'), t('login.failedBody'));
       }
     } catch (error) {
       console.error('Login error:', error);
-      Alert.alert('Error', 'An error occurred during login.');
+      Alert.alert(t('common.error'), t('login.errorBody'));
     } finally {
       setLoading(false);
     }
@@ -47,9 +49,9 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Sign In</Text>
+        <Text style={styles.title}>{t('nav.login')}</Text>
         <Text style={styles.subtitle}>
-          Sign in to save recipes and create cookbooks.
+          {t('login.subtitle')}
         </Text>
 
         <TouchableOpacity
@@ -57,7 +59,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
           onPress={() => handleLogin('login')}
           disabled={loading}
         >
-          <Text style={styles.primaryButtonText}>Log in</Text>
+          <Text style={styles.primaryButtonText}>{t('login.logIn')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -65,18 +67,18 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
           onPress={() => handleLogin('signup')}
           disabled={loading}
         >
-          <Text style={styles.authButtonText}>Signup for free</Text>
+          <Text style={styles.authButtonText}>{t('login.signUp')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.skipButton}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.skipButtonText}>Skip for now</Text>
+          <Text style={styles.skipButtonText}>{t('login.skip')}</Text>
         </TouchableOpacity>
       </View>
       
-      <Loading visible={loading} message="Signing in..." />
+      <Loading visible={loading} message={t('auth.signingIn')} />
     </View>
   );
 };

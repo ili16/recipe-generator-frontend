@@ -7,43 +7,37 @@ import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import RecipeView, { recipeMarkdownStyles } from '../components/RecipeView';
 import { Theme, useTheme } from '../context/ThemeContext';
-import { layout, type } from '../theme';
+import { layout, radius, type } from '../theme';
 import apiService, { ApiError } from '../services/apiService';
-import { getCachedRecipes } from '../utils/recipesCache';
+import { addCachedRecipe, getCachedRecipes } from '../utils/recipesCache';
+import { useAlert } from '../context/AlertContext';
+import { useLanguage } from '../context/LanguageContext';
+import { currentLocale } from '../i18n';
 import { parseISODate } from '../utils/mealPlanDates';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { ChatArtifact, ChatAttachment, ChatMessage, ChatSource } from '../types';
 import { hostLabel } from '../utils/recipeOrigin';
+import { foldArtifact } from '../utils/chatArtifacts';
 import Composer from './chat/Composer';
+import { FeedbackPulse } from '../components/FeedbackPulse';
 
 // The home surface (BACKLOG.md 3.3): one thread that can generate, refine, save and plan,
 // with the agent picking the action. Everything structured the turn produced arrives as an
 // artifact and renders through the shared RecipeView — no second recipe renderer here.
 
-// What each tool is doing, in the user's terms. An unlisted tool falls back to its name,
-// so a tool added server-side degrades to something readable rather than nothing.
-const TOOL_LABELS: Record<string, string> = {
-  generate_recipe: 'Writing a recipe',
-  transform_recipe: 'Adjusting the recipe',
-  search_my_recipes: 'Searching your recipes',
-  get_recipe: 'Opening a recipe',
-  save_recipe: 'Saving to your account',
-  plan_week: 'Planning the week',
-  set_plan_day: 'Updating your plan',
-  clear_plan_day: 'Clearing that day',
-  get_preferences: 'Reading your preferences',
-  set_preferences: 'Updating your preferences',
-  fetch_url: 'Reading the page',
-  answer_cooking_question: 'Thinking it through',
-};
+// The tools we have words for, under `chat.tool.*`. A tool added server-side is not in the
+// catalog and falls back to its own name — readable, rather than nothing.
+const NAMED_TOOLS = new Set([
+  'generate_recipe', 'transform_recipe', 'search_my_recipes', 'get_recipe', 'save_recipe',
+  'plan_week', 'set_plan_day', 'clear_plan_day', 'get_preferences', 'set_preferences',
+  'fetch_url', 'answer_cooking_question',
+]);
 
-const ERROR_MESSAGES: Record<string, string> = {
-  budget_exceeded: "You've hit your monthly usage cap.",
-  conversation_not_found: 'That conversation is gone — starting a new one.',
-  timeout: 'That took too long. Try asking for something smaller.',
-  iteration_limit: 'I got stuck going in circles. Try rephrasing?',
-};
+// Server error codes we have words for, under `chat.error.*`.
+const NAMED_ERRORS = new Set([
+  'budget_exceeded', 'conversation_not_found', 'timeout', 'iteration_limit',
+]);
 
 // The extracting tools carry what they are extracting *from* in their own arguments —
 // the only place the client can learn it, and it arrives before the recipe does
@@ -67,17 +61,13 @@ const sourceFromArgs = (name: string, args: string, attachments: ChatAttachment[
   return null;
 };
 
-const OPENERS = [
-  'A quick vegan pasta for two',
-  'Make something with what I have: eggs, spinach, feta',
-  'Plan my week from my saved recipes',
-];
-
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
 const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
+  const { showAlert } = useAlert();
+  const { t } = useLanguage();
   const { width } = useWindowDimensions();
   const isWide = Platform.OS === 'web' && width > layout.breakpointWide;
 
@@ -136,21 +126,62 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             setActiveTool(null);
             break;
           case 'artifact':
-            patch((m) => ({ ...m, artifacts: [...(m.artifacts ?? []), event.payload] }));
+            // A save re-emits the recipe's card carrying its new recipe_id. That usually
+            // lands a turn or more after the card it updates ("make me a pasta" … "save
+            // it"), so the fold searches the whole thread, not just this turn: the
+            // existing card flips to Saved instead of a second copy appearing below it.
+            setMessages((prev) => foldArtifact(prev, event.payload));
             break;
         }
       }, controller.signal, attachments);
     } catch (err) {
       if (!controller.signal.aborted) {
         const code = err instanceof ApiError ? err.message : '';
-        patch((m) => ({ ...m, error: ERROR_MESSAGES[code] ?? 'Something went wrong. Try again?' }));
+        patch((m) => ({ ...m, error: NAMED_ERRORS.has(code) ? t(`chat.error.${code}`) : t('common.unknownError') }));
       }
     } finally {
       setActiveTool(null);
       setSending(false);
       abortRef.current = null;
     }
-  }, [sending]);
+  }, [sending, t]);
+
+  // Saving a draft the agent wrote, without asking the model to do it again. The server
+  // saves through the same idempotent path as the save_recipe tool, so a second tap — or
+  // a later "save it" — lands on the recipe already saved.
+  const [savingRef, setSavingRef] = useState<string | null>(null);
+  const [expiredRefs, setExpiredRefs] = useState<string[]>([]);
+  const saveDraft = useCallback(async (draftRef: string) => {
+    const conversation = conversationId.current;
+    if (!conversation || savingRef) return;
+    setSavingRef(draftRef);
+    try {
+      const saved = await apiService.saveChatDraft(conversation, draftRef);
+      addCachedRecipe(saved);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.artifacts
+            ? {
+                ...m,
+                artifacts: m.artifacts.map((a) =>
+                  a.kind === 'recipe' && a.data.draft_ref === draftRef
+                    ? { ...a, data: { ...a.data, recipe_id: saved.id } }
+                    : a
+                ),
+              }
+            : m
+        )
+      );
+    } catch (err) {
+      // The server forgets a cold conversation's drafts (2h, and a restart). Nothing the
+      // button can do then, so the card falls back to asking the assistant.
+      const code = err instanceof ApiError ? (err.data as { code?: string } | undefined)?.code : undefined;
+      if (code === 'draft_expired') setExpiredRefs((prev) => [...prev, draftRef]);
+      else showAlert(t('chat.saveFailedTitle'), t('chat.saveFailedBody'), 'error');
+    } finally {
+      setSavingRef(null);
+    }
+  }, [showAlert, savingRef, t]);
 
   // A prompt handed over by another screen (the planner's "Plan my week" / "Ask the
   // assistant") is sent as an ordinary turn, then cleared so going back doesn't resend it.
@@ -169,10 +200,14 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         contentContainerStyle={[styles.threadContent, isWide && styles.wide]}
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
       >
+        {/* The occasional "how is it going" card (BACKLOG 9.16). It decides for itself
+            whether it is eligible and renders nothing when it is not. */}
+        <FeedbackPulse route="Chat" />
+
         {messages.length === 0 && (
           <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>What are we cooking?</Text>
-            {OPENERS.map((o) => (
+            <Text style={styles.emptyTitle}>{t('chat.emptyTitle')}</Text>
+            {(['chat.opener1', 'chat.opener2', 'chat.opener3'].map((k) => t(k))).map((o) => (
               <TouchableOpacity key={o} style={styles.opener} onPress={() => send(o)}>
                 <Text style={styles.openerText}>{o}</Text>
               </TouchableOpacity>
@@ -181,13 +216,23 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         )}
 
         {messages.map((m, i) => (
-          <Turn key={i} message={m} theme={theme} styles={styles} titles={titles} />
+          <Turn
+            key={i}
+            message={m}
+            theme={theme}
+            styles={styles}
+            t={t}
+            titles={titles}
+            savingRef={savingRef}
+            expiredRefs={expiredRefs}
+            onSaveDraft={saveDraft}
+          />
         ))}
 
         {activeTool && (
           <View style={styles.working}>
             <ActivityIndicator size="small" color={theme.accent} />
-            <Text style={styles.workingText}>{TOOL_LABELS[activeTool] ?? activeTool}…</Text>
+            <Text style={styles.workingText}>{NAMED_TOOLS.has(activeTool) ? t(`chat.tool.${activeTool}`) : activeTool}…</Text>
           </View>
         )}
       </ScrollView>
@@ -199,21 +244,29 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   );
 };
 
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
 interface TurnProps {
   message: ChatMessage;
   theme: Theme;
+  /** Passed down rather than re-read per card: these are all render-only children. */
+  t: Translate;
   styles: ReturnType<typeof makeStyles>;
   titles: Record<number, string>;
+  /** Draft-save plumbing for recipe artifacts: which ref is in flight, which are gone. */
+  savingRef: string | null;
+  expiredRefs: string[];
+  onSaveDraft: (draftRef: string) => void;
 }
 
-const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles }) => {
+const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, savingRef, expiredRefs, onSaveDraft, t }) => {
   if (message.role === 'user') {
     return (
       <View style={styles.userBubble}>
         {message.attachmentCount ? (
           <Text style={styles.userAttachments}>
             <Ionicons name="image-outline" size={12} color={theme.subtext} />
-            {` ${message.attachmentCount} photo${message.attachmentCount > 1 ? 's' : ''}`}
+            {` ${t('chat.photoCount', { count: message.attachmentCount })}`}
           </Text>
         ) : null}
         <Text style={styles.userText}>{message.text}</Text>
@@ -224,10 +277,20 @@ const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles }) => {
     <View style={styles.assistantTurn}>
       {message.text !== '' && <Markdown style={recipeMarkdownStyles(theme)}>{message.text}</Markdown>}
       {message.sources?.map((s, i) => (
-        <SourceCard key={i} source={s} theme={theme} styles={styles} />
+        <SourceCard key={i} source={s} theme={theme} styles={styles} t={t} />
       ))}
       {message.artifacts?.map((a, i) => (
-        <ArtifactCard key={i} artifact={a} theme={theme} styles={styles} titles={titles} />
+        <ArtifactCard
+          key={i}
+          artifact={a}
+          theme={theme}
+          styles={styles}
+          titles={titles}
+          t={t}
+          savingRef={savingRef}
+          expiredRefs={expiredRefs}
+          onSaveDraft={onSaveDraft}
+        />
       ))}
       {message.error && (
         <View style={styles.errorBox}>
@@ -241,7 +304,7 @@ const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles }) => {
 
 // What the agent read, shown in the thread ahead of what it produced, so an extracted
 // recipe is visibly an extraction rather than an invention.
-const SourceCard: React.FC<{ source: ChatSource } & Pick<TurnProps, 'theme' | 'styles'>> = ({ source, theme, styles }) => (
+const SourceCard: React.FC<{ source: ChatSource } & Pick<TurnProps, 'theme' | 'styles' | 't'>> = ({ source, theme, styles, t }) => (
   <View style={styles.sourceCard}>
     {source.kind === 'photo' ? (
       <Image source={{ uri: source.value }} style={styles.sourceThumb} />
@@ -250,7 +313,11 @@ const SourceCard: React.FC<{ source: ChatSource } & Pick<TurnProps, 'theme' | 's
     )}
     <View style={styles.sourceBody}>
       <Text style={styles.sourceLabel}>
-        {source.kind === 'photo' ? 'Reading your photo' : source.kind === 'url' ? `Reading ${hostLabel(source.value)}` : 'From what you asked for'}
+        {source.kind === 'photo'
+          ? t('chat.source.photo')
+          : source.kind === 'url'
+          ? t('chat.source.url', { host: hostLabel(source.value) })
+          : t('chat.source.text')}
       </Text>
       {source.kind !== 'photo' && (
         <Text style={styles.sourceDetail} numberOfLines={2}>{source.value}</Text>
@@ -259,13 +326,39 @@ const SourceCard: React.FC<{ source: ChatSource } & Pick<TurnProps, 'theme' | 's
   </View>
 );
 
-const ArtifactCard: React.FC<{ artifact: ChatArtifact } & Omit<TurnProps, 'message'>> = ({ artifact, theme, styles, titles }) => {
+const ArtifactCard: React.FC<{ artifact: ChatArtifact } & Omit<TurnProps, 'message'>> = ({
+  artifact, theme, styles, titles, savingRef, expiredRefs, onSaveDraft, t,
+}) => {
   if (artifact.kind === 'recipe') {
     const doc = artifact.data.document;
+    const ref = artifact.data.draft_ref;
+    const saved = artifact.data.recipe_id != null;
+    const expired = !!ref && expiredRefs.includes(ref);
     return (
       <View style={styles.card}>
         <Text style={styles.cardTitle}>{doc.title}</Text>
-        {artifact.data.recipe_id == null && <Text style={styles.draftTag}>Unsaved draft — say "save it" to keep it</Text>}
+        {saved ? (
+          <Text style={styles.draftTag}>
+            <Ionicons name="checkmark-circle" size={12} color={theme.accent} /> {t('chat.savedToRecipes')}
+          </Text>
+        ) : ref && !expired ? (
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={() => onSaveDraft(ref)}
+            disabled={savingRef != null}
+          >
+            {savingRef === ref ? (
+              <ActivityIndicator size="small" color={theme.accent} />
+            ) : (
+              <Ionicons name="bookmark-outline" size={14} color={theme.accent} />
+            )}
+            <Text style={styles.saveButtonText}>
+              {savingRef === ref ? t('common.saving') : t('chat.saveToRecipes')}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.draftTag}>{t('chat.unsavedDraft')}</Text>
+        )}
         <RecipeView structured={doc} markdown="" />
       </View>
     );
@@ -274,19 +367,19 @@ const ArtifactCard: React.FC<{ artifact: ChatArtifact } & Omit<TurnProps, 'messa
   const { plan, starts_on, ends_on } = artifact.data;
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Week of {starts_on} – {ends_on}</Text>
+      <Text style={styles.cardTitle}>{t('chat.weekOf', { start: starts_on, end: ends_on })}</Text>
       {plan.message && <Text style={styles.draftTag}>{plan.message}</Text>}
       {plan.assignments.map((a) => (
         <View key={a.planned_on} style={styles.planRow}>
           <Text style={styles.planDay}>
-            {parseISODate(a.planned_on).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
+            {parseISODate(a.planned_on).toLocaleDateString(currentLocale(), { weekday: 'short', day: 'numeric', month: 'short' })}
           </Text>
           <Text style={styles.planMeal} numberOfLines={1}>
-            {a.variant?.title ?? (a.recipe_id != null ? titles[a.recipe_id] ?? `Recipe #${a.recipe_id}` : '—')}
+            {a.variant?.title ?? (a.recipe_id != null ? titles[a.recipe_id] ?? t('chat.recipeNumber', { id: a.recipe_id }) : '—')}
           </Text>
         </View>
       ))}
-      <Text style={styles.draftTag}>Proposal only — say "apply it" to put it on your plan</Text>
+      <Text style={styles.draftTag}>{t('chat.proposalOnly')}</Text>
     </View>
   );
 };
@@ -316,6 +409,17 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   card: { backgroundColor: t.surface, borderWidth: 1, borderColor: t.border, borderRadius: 14, padding: 14, gap: 6 },
   cardTitle: { ...type.title, fontSize: 16, lineHeight: 22, color: t.text },
   draftTag: { ...type.caption, color: t.muted, fontStyle: 'italic' },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: t.accentFaded,
+  },
+  saveButtonText: { ...type.label, fontSize: 13, color: t.accent },
 
   planRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border },
   planDay: { width: 96, ...type.label, fontSize: 13, color: t.subtext },

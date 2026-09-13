@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import apiService from '../services/apiService';
+import { recordCook } from '../utils/feedbackPromptStore';
 import { Recipe, RecipeResponse } from '../types';
 import { useAlert } from '../context/AlertContext';
-import { Ingredient, Step } from '../screens/cooking/steps';
+import { useLanguage } from '../context/LanguageContext';
+import { groupSteps, Ingredient, Step, StepGroup } from '../screens/cooking/steps';
 
 export type Phase = 'loading' | 'overview' | 'cooking' | 'done' | 'refining' | 'refined';
 
@@ -10,9 +12,10 @@ export type Phase = 'loading' | 'overview' | 'cooking' | 'done' | 'refining' | '
 // the AI refine those notes feed.
 export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
   const { showAlert, confirmAction } = useAlert();
+  const { t } = useLanguage();
   const [recipe, setRecipe] = useState<Recipe>(initialRecipe);
   const [phase, setPhase] = useState<Phase>(initialRecipe.structured ? 'overview' : 'loading');
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentGroup, setCurrentGroup] = useState(0);
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [refinedRecipe, setRefinedRecipe] = useState<RecipeResponse | null>(null);
   const [saving, setSaving] = useState(false);
@@ -30,6 +33,16 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
   const structured = recipe.structured;
   const steps: Step[] = structured?.steps ?? [];
   const ingredients: Ingredient[] = structured?.ingredients ?? [];
+  // What the cook actually walks: one card per step, except where the recipe says two
+  // things happen at once. A recipe with no cook flow yields one group per step, so this
+  // is the old flat walk unchanged.
+  const groups: StepGroup[] = useMemo(() => groupSteps(steps), [steps]);
+  const group: StepGroup | undefined = groups[currentGroup];
+
+  // Notes stay keyed by the ORIGINAL step index, not the group index: the refine prompt
+  // below quotes steps[idx].step_text, and the recipe the notes get applied to still has
+  // steps, not groups. A note taken on a parallel block attaches to its first step.
+  const noteIndex = group?.indices[0] ?? 0;
 
   const setNote = (idx: number, text: string) => {
     if (!text.trim()) return;
@@ -37,9 +50,9 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
   };
 
   const next = (pendingNote?: string) => {
-    if (pendingNote?.trim()) setNote(currentStep, pendingNote);
-    if (currentStep < steps.length - 1) {
-      setCurrentStep(prev => prev + 1);
+    if (pendingNote?.trim()) setNote(noteIndex, pendingNote);
+    if (currentGroup < groups.length - 1) {
+      setCurrentGroup(prev => prev + 1);
       return;
     }
     // Walking off the last step is the one moment we know for certain the recipe was
@@ -48,14 +61,24 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
     // a failed mark costs a suggestion cooldown, not the user's cooking session.
     setPhase('done');
     apiService.markCooked(recipe.id).catch(() => {});
+    // The same moment is the milestone the pulse prompt rides on (BACKLOG 9.16) — it asks
+    // after three finished cooks, which is the first point someone has an opinion worth
+    // interrupting them for. Local-only and fire-and-forget, like the mark above.
+    recordCook().catch(() => {});
   };
 
-  const prev = () => setCurrentStep(p => (p > 0 ? p - 1 : p));
+  const prev = () => setCurrentGroup(p => (p > 0 ? p - 1 : p));
 
   // Every AI call this cooking run makes — the refine below and each "Ask AI" question —
   // is a turn in one agent thread, so a question can follow up on the last answer and the
   // refine sees what was already discussed (BACKLOG 3.13).
   const conversationId = useRef<string | null>(null);
+
+  // Which screen the pending proposal was launched from, so backing out of it — or saving
+  // it — lands where the user was. Notes are refined at the end of a cook and belong back
+  // on 'done'; a flow is planned before starting and belongs back on 'overview', ready to
+  // cook the version just saved rather than bounced out to the library.
+  const refineOrigin = useRef<'done' | 'overview'>('done');
 
   const turn = async (message: string) => {
     const result = await apiService.chatTurn(message, conversationId.current);
@@ -87,6 +110,7 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
       })
       .join('\n');
 
+    refineOrigin.current = 'done';
     setPhase('refining');
     try {
       // The agent loads the recipe by id itself (transform_recipe takes a saved id), so
@@ -98,7 +122,7 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
       if (!document) {
         // No artifact means the agent declined or asked something back — its own words
         // are a better message than the old envelope's canned one.
-        showAlert("Couldn't apply that", text || 'Could not refine the recipe.', 'error');
+        showAlert(t('library.applyFailedTitle'), text || t('library.refineFailedBody'), 'error');
         setPhase('done');
         return;
       }
@@ -109,13 +133,38 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
     }
   };
 
+  // Ask the agent to re-plan how this recipe is cooked (its review_cook_flow tool): merge
+  // the steps too thin to be worth a screen, phase them, and mark what runs in parallel.
+  // Offered on the overview of a recipe that has no flow yet — every recipe saved before
+  // it existed. Reuses refining/refined, so reviewing and saving the result is the same
+  // screen the cooking-notes refine already goes through; it proposes, saveRefined writes.
+  const planFlow = async () => {
+    if (!recipe.structured) return;
+    refineOrigin.current = 'overview';
+    setPhase('refining');
+    try {
+      const { text, document } = await turn(
+        `Review the cooking flow of my saved recipe ${recipe.id} and show me the result. Do not save it.`,
+      );
+      if (!document) {
+        showAlert(t('cooking.planFailedTitle'), text || t('cooking.planFailedBody'), 'error');
+        setPhase('overview');
+        return;
+      }
+      setRefinedRecipe({ recipename: document.title, recipe: '', structured: document });
+      setPhase('refined');
+    } catch {
+      setPhase('overview');
+    }
+  };
+
   const saveRefined = async () => {
     if (!refinedRecipe?.structured) return;
     if (recipe.manually_edited) {
       const ok = await confirmAction(
-        'Overwrite manual edits?',
-        'Applying this AI suggestion will replace your manual changes to this recipe.',
-        { confirmLabel: 'Apply' },
+        t('library.overwriteTitle'),
+        t('library.overwriteBody'),
+        { confirmLabel: t('recipes.apply') },
       );
       if (!ok) return;
     }
@@ -127,6 +176,14 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
         ai_sourced: true,
       });
       setRecipe(updated);
+      setSaving(false);
+      if (refineOrigin.current === 'overview') {
+        // A re-planned flow is something to go and cook, not to leave. The overview now
+        // renders the saved document's phases.
+        setRefinedRecipe(null);
+        setPhase('overview');
+        return;
+      }
       onSaved();
     } catch {
       setSaving(false);
@@ -134,9 +191,9 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
   };
 
   return {
-    recipe, structured, steps, ingredients,
-    phase, setPhase, currentStep, setCurrentStep,
+    recipe, structured, steps, ingredients, groups, group,
+    phase, setPhase, currentGroup, setCurrentGroup, noteIndex, refineOrigin,
     notes, setNote, next, prev,
-    ask, refine, refinedRecipe, saveRefined, saving,
+    ask, refine, planFlow, refinedRecipe, saveRefined, saving,
   };
 }

@@ -4,6 +4,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useIsAuthenticated } from '../hooks/useIsAuthenticated';
 import { SignInRequired } from '../components/ui';
@@ -20,17 +21,18 @@ const MealPlanScreen: React.FC<Props> = ({ navigation }) => {
   const isAuthenticated = useIsAuthenticated();
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
 
   if (isAuthenticated === null) {
-    return <Loading visible message="Loading..." />;
+    return <Loading visible message={t('common.loading')} />;
   }
 
   if (!isAuthenticated) {
     return (
       <SignInRequired
-        message="Please sign in to plan your week"
+        message={t('plan.signInToPlan')}
         onSignIn={() => navigation.navigate('Login')}
       />
     );

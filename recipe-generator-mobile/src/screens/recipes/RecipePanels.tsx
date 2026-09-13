@@ -3,6 +3,7 @@ import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity } from 
 import { Ionicons } from '@expo/vector-icons';
 import { Collection, RecipeDocument, RecipeVersion } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
 import { summarizeVersionChange } from '../../utils/versionSummary';
 import { makeSharedStyles } from './styles';
@@ -20,6 +21,7 @@ export interface VariantPreview {
 
 export const RefinePanel: React.FC<{ loading: boolean; onApply: (prompt: string) => void }> = ({ loading, onApply }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
   const [prompt, setPrompt] = useState('');
 
@@ -27,7 +29,7 @@ export const RefinePanel: React.FC<{ loading: boolean; onApply: (prompt: string)
     <View style={s.refineBox}>
       <TextInput autoComplete="off"
         style={[s.fieldInput, s.fieldInputMultiline]}
-        placeholder="e.g. make it vegetarian, double the servings..."
+        placeholder={t('recipes.refinePlaceholder')}
         placeholderTextColor={theme.muted}
         value={prompt}
         onChangeText={setPrompt}
@@ -39,7 +41,7 @@ export const RefinePanel: React.FC<{ loading: boolean; onApply: (prompt: string)
         onPress={() => onApply(prompt.trim())}
         disabled={!prompt.trim() || loading}
       >
-        <Text style={s.cookButtonText}>{loading ? 'Thinking…' : 'Apply'}</Text>
+        <Text style={s.cookButtonText}>{loading ? t('recipes.thinking') : t('recipes.apply')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -53,6 +55,7 @@ export const VariantPanel: React.FC<{
   onAccept: () => void;
 }> = ({ loading, preview, onGenerate, onDiscard, onAccept }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [hint, setHint] = useState('');
@@ -67,10 +70,10 @@ export const VariantPanel: React.FC<{
           ) : null}
           <View style={styles.variantActionsRow}>
             <TouchableOpacity style={styles.variantDiscardButton} onPress={onDiscard}>
-              <Text style={styles.variantDiscardButtonText}>Discard</Text>
+              <Text style={styles.variantDiscardButtonText}>{t('recipes.discard')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.variantAcceptButton} onPress={onAccept}>
-              <Text style={styles.variantAcceptButtonText}>Save as new recipe</Text>
+              <Text style={styles.variantAcceptButtonText}>{t('recipes.saveAsNew')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -78,7 +81,7 @@ export const VariantPanel: React.FC<{
         <>
           <TextInput autoComplete="off"
             style={[s.fieldInput, s.fieldInputMultiline]}
-            placeholder="Optional: steer the twist, e.g. make it Thai-style"
+            placeholder={t('recipes.variantPlaceholder')}
             placeholderTextColor={theme.muted}
             value={hint}
             onChangeText={setHint}
@@ -90,7 +93,7 @@ export const VariantPanel: React.FC<{
             onPress={() => onGenerate(hint.trim())}
             disabled={loading}
           >
-            <Text style={s.cookButtonText}>{loading ? 'Thinking…' : 'Generate'}</Text>
+            <Text style={s.cookButtonText}>{loading ? t('recipes.thinking') : t('recipes.generate')}</Text>
           </TouchableOpacity>
         </>
       )}
@@ -105,34 +108,35 @@ const CHANGE_KIND_ICON: Record<RecipeVersion['change_kind'], React.ComponentProp
   ai_edit: 'sparkles-outline',
 };
 
-const CHANGE_KIND_LABEL: Record<RecipeVersion['change_kind'], string> = {
-  extraction: 'Created',
-  import: 'Imported',
-  manual: 'Manual edit',
-  ai_edit: 'AI edit',
+const CHANGE_KIND_KEY: Record<RecipeVersion['change_kind'], string> = {
+  extraction: 'history.kind.extraction',
+  import: 'history.kind.import',
+  manual: 'history.kind.manual',
+  ai_edit: 'history.kind.ai_edit',
 };
 
 export const HistoryPanel: React.FC<{ loading: boolean; entries: RecipeVersion[] }> = ({ loading, entries }) => {
   const { theme } = useTheme();
+  const { t, locale } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   return (
     <View style={styles.historyBox}>
       {loading ? (
-        <Text style={styles.historyEmptyText}>Loading history…</Text>
+        <Text style={styles.historyEmptyText}>{t('history.loading')}</Text>
       ) : entries.length === 0 ? (
-        <Text style={styles.historyEmptyText}>No edit history yet.</Text>
+        <Text style={styles.historyEmptyText}>{t('history.empty')}</Text>
       ) : (
         <ScrollView style={styles.historyScroll} nestedScrollEnabled>
           {entries.map((entry, idx) => (
             <View key={entry.version} style={styles.historyEntry}>
               <View style={styles.historyEntryHeader}>
                 <Ionicons name={CHANGE_KIND_ICON[entry.change_kind]} size={13} color={theme.accent} style={{ marginRight: 6 }} />
-                <Text style={styles.historyKind}>{CHANGE_KIND_LABEL[entry.change_kind]}</Text>
-                <Text style={styles.historyDate}>{new Date(entry.created_at).toLocaleString()}</Text>
+                <Text style={styles.historyKind}>{t(CHANGE_KIND_KEY[entry.change_kind])}</Text>
+                <Text style={styles.historyDate}>{new Date(entry.created_at).toLocaleString(locale)}</Text>
               </View>
               <Text style={styles.historySummary}>
-                {summarizeVersionChange(entry.data, entries[idx + 1]?.data)}
+                {summarizeVersionChange(entry.data, entries[idx + 1]?.data, t)}
               </Text>
               {entry.change_note ? (
                 <Text style={styles.historyNote}>“{entry.change_note}”</Text>
@@ -245,6 +249,7 @@ export const CollectionsPanel: React.FC<{
   onCreate: (name: string) => Promise<Collection | null>;
 }> = ({ collections, recipeId, onToggle, onCreate }) => {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -265,7 +270,7 @@ export const CollectionsPanel: React.FC<{
   return (
     <View style={s.refineBox}>
       {collections.length === 0 ? (
-        <Text style={s.fieldLabel}>No collections yet — name one below.</Text>
+        <Text style={s.fieldLabel}>{t('recipes.noCollections')}</Text>
       ) : (
         <View style={s.tagRow}>
           {collections.map(c => (
@@ -281,7 +286,7 @@ export const CollectionsPanel: React.FC<{
       <View style={s.fieldRow}>
         <TextInput autoComplete="off"
           style={[s.fieldInput, s.fieldCol]}
-          placeholder="New collection name"
+          placeholder={t('recipes.newCollectionName')}
           placeholderTextColor={theme.muted}
           value={name}
           onChangeText={setName}
@@ -293,7 +298,7 @@ export const CollectionsPanel: React.FC<{
           onPress={create}
           disabled={!name.trim() || creating}
         >
-          <Text style={s.cookButtonText}>Add</Text>
+          <Text style={s.cookButtonText}>{t('common.add')}</Text>
         </TouchableOpacity>
       </View>
     </View>

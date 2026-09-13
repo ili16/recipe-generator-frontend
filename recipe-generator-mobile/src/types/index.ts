@@ -53,6 +53,10 @@ export interface RecipeGeneratePayload {
   image?: File;
 }
 
+// The three parts of a cook: mise en place, the heat being on, and waiting. Mirrors the
+// backend's recipe_steps.phase check constraint.
+export type CookPhase = 'prep' | 'cook' | 'wait';
+
 export interface RecipeDocument {
   title: string;
   summary?: string | null;
@@ -86,6 +90,13 @@ export interface RecipeDocument {
     timer_seconds?: number | null;
     temperature_c?: number | null;
     ingredient_indices?: number[] | null;
+    // Which part of the cook this step is: mise en place, heat-is-on, or passive
+    // waiting. Absent on everything generated before the cook flow existed, which
+    // cooking mode renders as one unlabelled run of steps, exactly as it always did.
+    phase?: CookPhase | null;
+    // Consecutive steps sharing a non-null value happen at the same time and are walked
+    // as one card. null means the step runs on its own.
+    parallel_group?: number | null;
   }>;
 }
 
@@ -292,4 +303,28 @@ export interface ChatMessage {
   sources?: ChatSource[];
   artifacts?: ChatArtifact[];
   error?: string;
+}
+
+/* ── Feedback (BACKLOG 9.16) ───────────────────────────────────────────────── */
+
+// 'bug' and 'idea' come from the report sheet; 'pulse' is the one-tap thumb on the
+// occasional prompt. One shape, because they end up in one morning read.
+export type FeedbackKind = 'bug' | 'idea' | 'pulse';
+
+export interface FeedbackPayload {
+  kind: FeedbackKind;
+  /** Required for 'bug'/'idea'; optional for a 'pulse', which can be a thumb alone. */
+  message?: string;
+  /** +1/-1, 'pulse' only. */
+  sentiment?: 1 | -1;
+  /** Only ever collected from an anonymous reporter, and never required of them. */
+  contact?: string;
+  /** Auto-attached: the screen they were on, platform, app version, locale. */
+  context?: Record<string, string | number | undefined>;
+  /**
+   * An optional screenshot as a data: URL (or bare base64). The server decodes it, checks
+   * it really sniffs as an image, and stores the bytes — a written report is ambiguous
+   * twice and a picture settles both halves.
+   */
+  screenshot?: string;
 }

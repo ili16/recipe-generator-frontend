@@ -6,10 +6,11 @@ import type { Recipe } from '../../types';
  */
 export type QuickFilter = 'favourite' | 'fast' | 'batch';
 
-export const QUICK_FILTER_LABELS: Record<QuickFilter, string> = {
-  favourite: 'Favourites',
-  fast: 'Fast (<25m)',
-  batch: 'Batch cooked',
+// i18n keys, not words — resolved with `t()` where the chips are rendered (see src/i18n).
+export const QUICK_FILTER_LABEL_KEYS: Record<QuickFilter, string> = {
+  favourite: 'recipes.quickFilter.favourite',
+  fast: 'recipes.quickFilter.fast',
+  batch: 'recipes.quickFilter.batch',
 };
 
 // A recipe with no time or servings recorded is not "fast" and not "batch" — unknown is

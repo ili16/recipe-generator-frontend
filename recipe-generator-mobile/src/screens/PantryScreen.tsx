@@ -10,16 +10,17 @@ import { space, radius } from '../theme';
 import { Text, Button, Chip, Badge, SignInRequired } from '../components/ui';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useIsAuthenticated } from '../hooks/useIsAuthenticated';
+import { useLanguage } from '../context/LanguageContext';
 import { daysUntil, expiryLabel, USE_FIRST_DAYS } from '../utils/pantryExpiry';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Pantry'>;
 
 // Sections, in the order the mockup's inventory reads (DESIGN_SYSTEM §7.7).
-const CATEGORIES: Array<{ key: PantryCategory; label: string }> = [
-  { key: 'fridge', label: 'Fridge' },
-  { key: 'freezer', label: 'Freezer' },
-  { key: 'produce', label: 'Produce' },
-  { key: 'spices_dry', label: 'Spices & Dry' },
+const CATEGORIES: Array<{ key: PantryCategory; labelKey: string }> = [
+  { key: 'fridge', labelKey: 'pantry.shelf.fridge' },
+  { key: 'freezer', labelKey: 'pantry.shelf.freezer' },
+  { key: 'produce', labelKey: 'pantry.shelf.produce' },
+  { key: 'spices_dry', labelKey: 'pantry.shelf.spices_dry' },
 ];
 
 // "Use first" is derived from the expiry date rather than being a column the user has to
@@ -51,6 +52,7 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
   const [expiresOn, setExpiresOn] = useState('');
   const [category, setCategory] = useState<PantryCategory>('fridge');
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
 
@@ -116,7 +118,7 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
   if (!authed) {
     return (
       <SignInRequired
-        message="Please sign in to keep track of what you have in the house"
+        message={t('pantry.signInRequired')}
         onSignIn={() => navigation.navigate('Login')}
       />
     );
@@ -125,11 +127,11 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.list}>
       <View style={styles.addCard}>
-        <Text variant="label" tone="subtle">Add an item</Text>
+        <Text variant="label" tone="subtle">{t('pantry.addItem')}</Text>
         <TextInput
           autoComplete="off"
           style={styles.input}
-          placeholder="e.g. flour"
+          placeholder={t('pantry.namePlaceholder')}
           placeholderTextColor={theme.muted}
           value={name}
           onChangeText={setName}
@@ -157,7 +159,7 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
           <TextInput
             autoComplete="off"
             style={[styles.input, styles.flex]}
-            placeholder="expires 2026-10-01"
+            placeholder={t('pantry.expiresPlaceholder')}
             placeholderTextColor={theme.muted}
             value={expiresOn}
             onChangeText={setExpiresOn}
@@ -165,40 +167,40 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
         </View>
         <View style={styles.chipRow}>
           {CATEGORIES.map(c => (
-            <Chip key={c.key} label={c.label} selected={category === c.key} onPress={() => setCategory(c.key)} />
+            <Chip key={c.key} label={t(c.labelKey)} selected={category === c.key} onPress={() => setCategory(c.key)} />
           ))}
         </View>
-        <Button title="Add" onPress={add} loading={saving} disabled={!name.trim()} />
+        <Button title={t('common.add')} onPress={add} loading={saving} disabled={!name.trim()} />
       </View>
 
       {error && (
         <View style={styles.section}>
-          <Text tone="danger">Something went wrong.</Text>
-          <Button title="Try again" variant="secondary" size="sm" onPress={load} />
+          <Text tone="danger">{t('pantry.loadFailed')}</Text>
+          <Button title={t('common.retry')} variant="secondary" size="sm" onPress={load} />
         </View>
       )}
 
       {useFirst.length > 0 && (
         <View style={styles.section}>
-          <Text variant="label" tone="subtle">Use first</Text>
+          <Text variant="label" tone="subtle">{t('pantry.useFirst')}</Text>
           <Text tone="subtle" variant="caption">
             {useFirst.map(i => i.name).join(' · ')}
           </Text>
-          <Button title="Find recipes using these" variant="secondary" size="sm" onPress={findRecipes} />
+          <Button title={t('pantry.findRecipes')} variant="secondary" size="sm" onPress={findRecipes} />
         </View>
       )}
 
       {items === null && !error ? (
         <ActivityIndicator style={styles.pad} color={theme.accent} />
       ) : (items ?? []).length === 0 ? (
-        <Text tone="subtle">Nothing here yet. Add what you have, or tick lines off your grocery list.</Text>
+        <Text tone="subtle">{t('pantry.empty')}</Text>
       ) : (
         CATEGORIES.map(c => {
           const section = (items ?? []).filter(i => i.category === c.key);
           if (section.length === 0) return null;
           return (
             <View key={c.key} style={styles.section}>
-              <Text variant="label" tone="subtle">{c.label}</Text>
+              <Text variant="label" tone="subtle">{t(c.labelKey)}</Text>
               {section.map(item => {
                 const days = item.expires_on != null ? daysUntil(item.expires_on) : null;
                 const amount = amountLabel(item);
@@ -209,14 +211,14 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
                     </View>
                     {days !== null && (
                       <Badge
-                        label={expiryLabel(days)}
+                        label={expiryLabel(days, t)}
                         tone={days <= USE_FIRST_DAYS ? 'accent' : 'neutral'}
                       />
                     )}
                     <TouchableOpacity
                       onPress={() => remove(item)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Remove ${item.name}`}
+                      accessibilityLabel={t('pantry.removeItem', { name: item.name })}
                       style={styles.removeButton}
                     >
                       <Ionicons name="close" size={18} color={theme.muted} />

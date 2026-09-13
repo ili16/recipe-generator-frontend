@@ -18,7 +18,7 @@ const r = (id: number, recipename: string, tags: string[]): Recipe =>
   ({ id, recipename, recipe: '', tags } as Recipe);
 
 const names = (rows: PickerRow[]): string[] =>
-  rows.map(row => row.kind === 'heading' ? `— ${row.label}` : row.recipe.recipename);
+  rows.map(row => row.kind === 'heading' ? `— ${row.labelKey}` : row.recipe.recipename);
 
 export function check(): void {
   const pancakes = r(1, 'Pancakes', ['breakfast-brunch']);
@@ -28,13 +28,13 @@ export function check(): void {
   // The acceptance case: breakfast leads, dinner falls under the divider.
   assert.deepEqual(
     names(pickerRows([stew, pancakes], 'breakfast', '')),
-    ['Pancakes', '— Other recipes', 'Beef stew'],
+    ['Pancakes', '— plan.otherRecipes', 'Beef stew'],
   );
 
   // Same library, other slot — the order flips rather than anything disappearing.
   assert.deepEqual(
     names(pickerRows([pancakes, stew], 'dinner', '')),
-    ['Beef stew', '— Other recipes', 'Pancakes'],
+    ['Beef stew', '— plan.otherRecipes', 'Pancakes'],
   );
 
   // Ranked, never filtered: every recipe survives, tagged or not.
@@ -56,7 +56,7 @@ export function check(): void {
   const structuredOnly = { id: 4, recipename: 'Omelette', recipe: '', structured: { tags: ['breakfast-brunch'] } } as Recipe;
   assert.deepEqual(
     names(pickerRows([stew, structuredOnly], 'breakfast', '')),
-    ['Omelette', '— Other recipes', 'Beef stew'],
+    ['Omelette', '— plan.otherRecipes', 'Beef stew'],
   );
 
   console.log('pickerRows.check: 9 checks passed');

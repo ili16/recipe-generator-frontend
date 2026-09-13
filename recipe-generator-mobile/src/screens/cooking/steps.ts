@@ -1,7 +1,86 @@
-import { RecipeDocument } from '../../types';
+import { CookPhase, RecipeDocument } from '../../types';
 
 export type Step = RecipeDocument['steps'][number];
 export type Ingredient = RecipeDocument['ingredients'][number];
+
+// One card in cooking mode: either a single step, or the several steps a cook does at the
+// same time. Grouping is what makes "boil the water while you chop" one thing you stand
+// and do rather than two screens that teach you to cook it slowly.
+export interface StepGroup {
+  steps: Step[];
+  /** The group's phase, or null when the steps carry none (everything pre-cook-flow). */
+  phase: CookPhase | null;
+  /** Indices into the original steps array — notes stay keyed on these. */
+  indices: number[];
+  /**
+   * How long the block takes: the longest track, not the sum. Two things happening at
+   * once take as long as the slower one. null when no track has a timer.
+   */
+  timerSeconds: number | null;
+}
+
+export const phaseLabelKey = (phase: CookPhase) => `cooking.phase.${phase}`;
+
+// Fold consecutive steps sharing a non-null parallel_group into one card; everything else
+// is a card of its own. A step list with no groups at all (every recipe saved before the
+// cook flow existed) comes back one-to-one, which is exactly the old behaviour.
+export function groupSteps(steps: Step[]): StepGroup[] {
+  const groups: StepGroup[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const g = step.parallel_group;
+    const last = groups[groups.length - 1];
+    // Only *consecutive* steps fold: the same group number reused later in the recipe is
+    // a separate block of parallel work, not a continuation of the earlier one.
+    if (last !== undefined && g != null && last.steps[0].parallel_group === g) {
+      last.steps.push(step);
+      last.indices.push(i);
+      last.phase = last.phase ?? step.phase ?? null;
+      last.timerSeconds = maxTimer(last.timerSeconds, step.timer_seconds);
+      continue;
+    }
+    groups.push({
+      steps: [step],
+      phase: step.phase ?? null,
+      indices: [i],
+      timerSeconds: step.timer_seconds ?? null,
+    });
+  }
+  return groups;
+}
+
+function maxTimer(a: number | null, b: number | null | undefined): number | null {
+  if (b == null) return a;
+  return a == null ? b : Math.max(a, b);
+}
+
+// What the group is called while cooking it. A single step keeps its own text as the
+// heading; a parallel block needs a name of its own, since neither track is the title.
+// `t` is passed in: this file is pure, and its check script runs under plain node.
+export function groupSpokenText(group: StepGroup, t: (key: string) => string): string {
+  if (group.steps.length === 1) return group.steps[0].step_text;
+  return [
+    t('cooking.atTheSameTime'),
+    ...group.steps.map((s, i) => `${i + 1}. ${s.step_text}`),
+  ].join(' ');
+}
+
+// Total time per phase across the whole recipe, for the overview's summary. Parallel
+// blocks count once (their longest track), which is the honest number: that is how long
+// the cook actually stands there.
+export function phaseSummary(groups: StepGroup[]): Array<{ phase: CookPhase; groups: number; seconds: number }> {
+  const order: CookPhase[] = ['prep', 'cook', 'wait'];
+  return order
+    .map(phase => {
+      const mine = groups.filter(g => g.phase === phase);
+      return {
+        phase,
+        groups: mine.length,
+        seconds: mine.reduce((sum, g) => sum + (g.timerSeconds ?? 0), 0),
+      };
+    })
+    .filter(p => p.groups > 0);
+}
 
 // Match ingredients mentioned in a step — use DB-provided indices if available, fall back to text matching.
 export function getStepIngredients(step: Step, allIngredients: Ingredient[]): Ingredient[] {

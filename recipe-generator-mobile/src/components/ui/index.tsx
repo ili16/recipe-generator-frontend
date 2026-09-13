@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  Pressable,
   StyleProp,
   StyleSheet,
   Text as RNText,
@@ -20,6 +21,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Theme, useTheme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { layout, radius, space, type as typeScale } from '../../theme';
 
 /** True on a wide viewport. The one breakpoint (5.1) — do not compare widths anywhere else. */
@@ -281,20 +283,30 @@ export const SignInRequired: React.FC<{
   message: string;
   onSignIn: () => void;
   children?: ReactNode;
-}> = ({ message, onSignIn, children }) => (
+}> = ({ message, onSignIn, children }) => {
+  const { t } = useLanguage();
+  return (
   <Screen center>
     <View style={{ alignItems: 'center', gap: space.sm }}>
-      <Text variant="title">Sign in required</Text>
+      <Text variant="title">{t('recipes.signInRequired')}</Text>
       <Text tone="subtle" style={{ textAlign: 'center' }}>{message}</Text>
-      <Button title="Sign In" onPress={onSignIn} style={{ marginTop: space.md }} />
+      <Button title={t('nav.login')} onPress={onSignIn} style={{ marginTop: space.md }} />
       {children}
     </View>
   </Screen>
-);
+  );
+};
 
 /* ── Sheet ────────────────────────────────────────────────────────────────── */
 
-/** Bottom sheet: tap the scrim to dismiss. No drag handle — nothing needs one yet. */
+/**
+ * Bottom sheet: tap the scrim to dismiss. No drag handle — nothing needs one yet.
+ *
+ * The sheet body is a `Pressable` with a no-op `onPress` so it becomes the touch responder
+ * and the scrim's dismiss never fires for a press *inside* the sheet. Without it, focusing a
+ * `TextInput` in a sheet bubbles to the scrim and closes it mid-typing — which is exactly
+ * what happened to the report form (BACKLOG 9.16). Do not flatten this back to a plain View.
+ */
 export const Sheet: React.FC<{
   visible: boolean;
   onClose: () => void;
@@ -305,12 +317,12 @@ export const Sheet: React.FC<{
   const styles = useMemo(() => makeSheetStyles(theme), [theme]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
-        <View style={styles.sheet}>
+      <Pressable style={styles.overlay} onPress={onClose} accessibilityLabel="Close">
+        <Pressable style={styles.sheet} onPress={() => { /* swallow: see the note above */ }}>
           {title ? <Text variant="label" tone="muted">{title}</Text> : null}
           {children}
-        </View>
-      </TouchableOpacity>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 };

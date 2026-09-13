@@ -14,18 +14,14 @@ import { Text, SignInRequired } from '../components/ui';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { usePreferences } from '../hooks/usePreferences';
 import { useIsAuthenticated } from '../hooks/useIsAuthenticated';
+import { useLanguage } from '../context/LanguageContext';
 import { toISODate, addDays, startOfWeek } from '../utils/mealPlanDates';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroceryList'>;
 
 // Aisle headings, in the order the server already sorts the lines into (DESIGN_SYSTEM §7.7).
-const CATEGORY_LABELS: Record<GroceryCategory, string> = {
-  produce: 'Produce & Herbs',
-  protein: 'Proteins & Seafood',
-  dairy: 'Dairy & Chilled',
-  pantry: 'Pantry & Dry Goods',
-  other: 'Other',
-};
+// The words are in `src/i18n` under `grocery.aisle.*`; the server sends the category only.
+const aisleLabelKey = (category: GroceryCategory) => `grocery.aisle.${category}`;
 
 // Where a ticked-off line lands in the pantry (BACKLOG 7.2). A shopping aisle and a pantry
 // shelf are not the same axis — everything chilled goes in the fridge whether it was bought
@@ -69,6 +65,7 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
   const [userId, setUserId] = useState<string | null>(null);
   const [anchor, setAnchor] = useState(() => new Date());
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   useEscapeBack();
 
@@ -157,7 +154,7 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
   if (!authed) {
     return (
       <SignInRequired
-        message="Please sign in to build a shopping list from your plan"
+        message={t('grocery.signInRequired')}
         onSignIn={() => navigation.navigate('Login')}
       />
     );
@@ -166,14 +163,14 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <View style={styles.weekNav}>
-        <TouchableOpacity onPress={() => setAnchor(addDays(anchor, -7))} style={styles.navButton} accessibilityRole="button" accessibilityLabel="Previous week">
+        <TouchableOpacity onPress={() => setAnchor(addDays(anchor, -7))} style={styles.navButton} accessibilityRole="button" accessibilityLabel={t('plan.previousWeek')}>
           <Ionicons name="chevron-back" size={20} color={theme.subtext} />
         </TouchableOpacity>
         <View style={styles.weekLabel}>
           <Text variant="label">{weekStartISO} → {weekEndISO}</Text>
-          {lines !== null && <Text variant="caption" tone="subtle">{remaining} of {lines.length} left</Text>}
+          {lines !== null && <Text variant="caption" tone="subtle">{t('grocery.remaining', { remaining, total: lines.length })}</Text>}
         </View>
-        <TouchableOpacity onPress={() => setAnchor(addDays(anchor, 7))} style={styles.navButton} accessibilityRole="button" accessibilityLabel="Next week">
+        <TouchableOpacity onPress={() => setAnchor(addDays(anchor, 7))} style={styles.navButton} accessibilityRole="button" accessibilityLabel={t('plan.nextWeek')}>
           <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
         </TouchableOpacity>
       </View>
@@ -182,19 +179,19 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
         <ActivityIndicator style={styles.pad} color={theme.accent} />
       ) : error ? (
         <View style={styles.pad}>
-          <Text tone="subtle">Could not load the list.</Text>
-          <TouchableOpacity onPress={load} accessibilityRole="button"><Text tone="accent">Try again</Text></TouchableOpacity>
+          <Text tone="subtle">{t('grocery.loadFailed')}</Text>
+          <TouchableOpacity onPress={load} accessibilityRole="button"><Text tone="accent">{t('common.retry')}</Text></TouchableOpacity>
         </View>
       ) : lines!.length === 0 ? (
         <View style={styles.pad}>
-          <Text tone="subtle">Nothing planned this week — plan some meals and their ingredients land here.</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('MealPlan')} accessibilityRole="button"><Text tone="accent">Open the meal plan</Text></TouchableOpacity>
+          <Text tone="subtle">{t('grocery.empty')}</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('MealPlan')} accessibilityRole="button"><Text tone="accent">{t('grocery.openMealPlan')}</Text></TouchableOpacity>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.list}>
           {sections.map(section => (
             <View key={section.category} style={styles.section}>
-              <Text variant="label" tone="subtle">{CATEGORY_LABELS[section.category] ?? CATEGORY_LABELS.other}</Text>
+              <Text variant="label" tone="subtle">{t(aisleLabelKey(section.category))}</Text>
               {section.lines.map(line => {
                 const isChecked = !!checked[lineKey(line)];
                 const amount = formatAmount(line);
@@ -215,7 +212,7 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
                       <Text style={isChecked ? styles.struck : undefined}>
                         {amount ? `${amount} · ` : ''}{line.item}{line.note ? ` (${line.note})` : ''}
                       </Text>
-                      <Text variant="caption" tone="subtle">For {line.for.join(' · ')}</Text>
+                      <Text variant="caption" tone="subtle">{t('grocery.forMeals', { meals: line.for.join(' · ') })}</Text>
                     </View>
                   </TouchableOpacity>
                 );

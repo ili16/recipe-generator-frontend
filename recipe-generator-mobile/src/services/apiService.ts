@@ -1,16 +1,16 @@
 import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload } from '../types';
 import authService from './authService';
-import { getLocales } from 'expo-localization';
+import { currentLocale } from '../i18n';
 
-// The device locale, sent on every /chat turn. It is the only language signal the backend
-// has left since POST /generate (and its `language` form field) was deleted — the agent
-// uses it when the user's own message is too short to detect a language from, so that
+// The language sent on every /chat turn. It is the only language signal the backend has
+// left since POST /generate (and its `language` form field) was deleted — the agent uses
+// it when the user's own message is too short to detect a language from, so that
 // "cacio e pepe" comes back in the user's language rather than Italian (BACKLOG 3.9).
-// Read once: a locale change restarts the app.
-const deviceLanguage = getLocales()[0]?.languageCode ?? '';
+// Read per turn, not once: it follows the in-app language switch (Profile), which starts
+// at the device locale but does not have to stay there.
 
 // The one error type every apiService method rejects with. `status` is the HTTP status
 // (undefined = the request never reached the server), so a caller can tell "the server
@@ -144,7 +144,7 @@ class ApiService {
     attachments?: ChatAttachment[],
   ): Promise<string | null> {
     let conversation = conversationId;
-    const body = { conversation_id: conversationId ?? '', message, attachments, language: deviceLanguage };
+    const body = { conversation_id: conversationId ?? '', message, attachments, language: currentLocale() };
 
     if (Platform.OS !== 'web') {
       const { data } = await this.client.post<{ events: { type: string; payload: unknown }[] }>(
@@ -279,6 +279,15 @@ class ApiService {
     else await this.client.delete(path);
   }
 
+  /* ── Feedback (BACKLOG 9.16) ─────────────────────────────────────────────── */
+
+  // The one write that works logged out: the request interceptor attaches a token when
+  // there is one and proceeds without when there isn't, and the backend treats "no user"
+  // as anonymous rather than unauthorised. A tester who never signs in still hits bugs.
+  async submitFeedback(payload: FeedbackPayload): Promise<void> {
+    await this.client.post(API_ENDPOINTS.FEEDBACK, payload);
+  }
+
   /* ── Pantry (BACKLOG 7.1) ────────────────────────────────────────────────── */
 
   async getPantry(): Promise<PantryItem[]> {
@@ -346,6 +355,18 @@ class ApiService {
       ...(origin ? { origin } : {}),
       ...(history ? { history } : {}),
       ...(variantOfRecipeId ? { variant_of_recipe_id: variantOfRecipeId } : {}),
+    });
+    return response.data;
+  }
+
+  // Saves a recipe the agent drafted in chat, without asking the model to do it — the
+  // thread's "Save to my recipes" button. Idempotent server-side per draft_ref, so a
+  // second tap (or a later "save it") returns the recipe already saved.
+  async saveChatDraft(conversationId: string, draftRef: string, tags?: string[]): Promise<Recipe> {
+    const response = await this.client.post<Recipe>(API_ENDPOINTS.SAVE_CHAT_DRAFT, {
+      conversation_id: conversationId,
+      draft_ref: draftRef,
+      ...(tags && tags.length > 0 ? { tags } : {}),
     });
     return response.data;
   }

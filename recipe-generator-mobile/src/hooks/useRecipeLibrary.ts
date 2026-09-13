@@ -3,6 +3,7 @@ import apiService from '../services/apiService';
 import authService from '../services/authService';
 import { Collection, Recipe, RecipeDocument } from '../types';
 import { useAlert } from '../context/AlertContext';
+import { useLanguage } from '../context/LanguageContext';
 import * as Clipboard from 'expo-clipboard';
 import { shareUrl } from '../constants';
 import { getCachedRecipes, setCachedRecipes } from '../utils/recipesCache';
@@ -12,6 +13,7 @@ import type { VariantPreview } from '../screens/recipes/RecipePanels';
 // cache in step, and the mutations (delete, vote, manual edit, AI refine, variants).
 export function useRecipeLibrary() {
   const { showAlert, confirmAction } = useAlert();
+  const { t } = useLanguage();
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -35,12 +37,12 @@ export function useRecipeLibrary() {
       setCachedRecipes(data);
     } catch (error) {
       console.error('Error loading recipes:', error);
-      showAlert('Error', 'Failed to load recipes', 'error');
+      showAlert(t('common.error'), t('library.loadFailed'), 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [showAlert]);
+  }, [showAlert, t]);
 
   useEffect(() => {
     (async () => {
@@ -68,20 +70,20 @@ export function useRecipeLibrary() {
 
   const remove = async (recipeId: number) => {
     const confirmed = await confirmAction(
-      'Delete Recipe',
-      'This moves the recipe to the trash. It stays restorable for 30 days.',
-      { confirmLabel: 'Delete', destructive: true }
+      t('library.deleteTitle'),
+      t('library.deleteBody'),
+      { confirmLabel: t('common.delete'), destructive: true }
     );
     if (!confirmed) return false;
 
     try {
       await apiService.deleteRecipe(recipeId);
       applyRecipes(recipes.filter(r => r.id !== recipeId));
-      showAlert('Moved to trash', 'You can restore it from the trash for 30 days', 'success');
+      showAlert(t('library.movedToTrash'), t('library.movedToTrashBody'), 'success');
       return true;
     } catch (error) {
       console.error('Error deleting recipe:', error);
-      showAlert('Error', 'Failed to delete recipe', 'error');
+      showAlert(t('common.error'), t('library.deleteFailed'), 'error');
       return false;
     }
   };
@@ -102,16 +104,16 @@ export function useRecipeLibrary() {
       return created;
     } catch (error) {
       console.error('Error creating collection:', error);
-      showAlert('Error', 'Failed to create the collection', 'error');
+      showAlert(t('common.error'), t('library.collectionCreateFailed'), 'error');
       return null;
     }
   };
 
   const removeCollection = async (collection: Collection) => {
     const confirmed = await confirmAction(
-      `Delete "${collection.name}"?`,
-      'The collection goes away. The recipes in it stay in your library.',
-      { confirmLabel: 'Delete', destructive: true },
+      t('library.deleteCollectionTitle', { name: collection.name }),
+      t('library.deleteCollectionBody'),
+      { confirmLabel: t('common.delete'), destructive: true },
     );
     if (!confirmed) return false;
     try {
@@ -120,7 +122,7 @@ export function useRecipeLibrary() {
       return true;
     } catch (error) {
       console.error('Error deleting collection:', error);
-      showAlert('Error', 'Failed to delete the collection', 'error');
+      showAlert(t('common.error'), t('library.collectionDeleteFailed'), 'error');
       return false;
     }
   };
@@ -137,7 +139,7 @@ export function useRecipeLibrary() {
     } catch (error) {
       console.error('Error updating collection membership:', error);
       apply(!member);
-      showAlert('Error', 'Failed to update the collection', 'error');
+      showAlert(t('common.error'), t('library.collectionUpdateFailed'), 'error');
     }
   };
 
@@ -146,9 +148,9 @@ export function useRecipeLibrary() {
       setTrash(await apiService.getTrash());
     } catch (error) {
       console.error('Error loading trash:', error);
-      showAlert('Error', 'Failed to load the trash', 'error');
+      showAlert(t('common.error'), t('library.trashLoadFailed'), 'error');
     }
-  }, [showAlert]);
+  }, [showAlert, t]);
 
   // Restoring puts the recipe back at the top of the library optimistically; the next
   // refresh re-sorts it by updated_at, which is where it actually belongs.
@@ -160,7 +162,7 @@ export function useRecipeLibrary() {
       return true;
     } catch (error) {
       console.error('Error restoring recipe:', error);
-      showAlert('Error', 'Failed to restore the recipe', 'error');
+      showAlert(t('common.error'), t('library.restoreFailed'), 'error');
       return false;
     }
   };
@@ -177,7 +179,7 @@ export function useRecipeLibrary() {
     } catch (error) {
       console.error('Error voting on recipe:', error);
       applyRecipes(recipes.map(r => (r.id === recipe.id ? { ...r, my_vote: prevVote } : r)));
-      showAlert('Error', 'Failed to save your vote', 'error');
+      showAlert(t('common.error'), t('library.voteFailed'), 'error');
     }
   };
 
@@ -186,21 +188,21 @@ export function useRecipeLibrary() {
   const toggleShare = async (recipe: Recipe) => {
     try {
       if (recipe.share_token) {
-        if (!(await confirmAction('Stop sharing?', 'Anyone with the existing link will lose access.',
-          { confirmLabel: 'Stop sharing', destructive: true }))) return;
+        if (!(await confirmAction(t('library.stopSharingTitle'), t('library.stopSharingBody'),
+          { confirmLabel: t('recipes.stopSharing'), destructive: true }))) return;
         await apiService.unshareRecipe(recipe.id);
         applyRecipes(recipes.map(r => (r.id === recipe.id ? { ...r, share_token: null } : r)));
-        showAlert('Link revoked', 'The shared link no longer works', 'success');
+        showAlert(t('library.linkRevoked'), t('library.linkRevokedBody'), 'success');
         return;
       }
       const token = await apiService.shareRecipe(recipe.id);
       applyRecipes(recipes.map(r => (r.id === recipe.id ? { ...r, share_token: token } : r)));
       const url = shareUrl(token);
       await Clipboard.setStringAsync(url);
-      showAlert('Link copied', url, 'success');
+      showAlert(t('library.linkCopied'), url, 'success');
     } catch (error) {
       console.error('Error sharing recipe:', error);
-      showAlert('Error', 'Failed to update sharing', 'error');
+      showAlert(t('common.error'), t('library.shareFailed'), 'error');
     }
   };
 
@@ -212,7 +214,7 @@ export function useRecipeLibrary() {
       applyRecipes(recipes.map(r => (r.id === recipe.id ? full : r)));
       return full.structured ?? null;
     } catch {
-      showAlert('Error', 'Failed to load recipe details', 'error');
+      showAlert(t('common.error'), t('library.detailsFailed'), 'error');
       return null;
     }
   };
@@ -223,7 +225,7 @@ export function useRecipeLibrary() {
       applyRecipes(recipes.map(r => (r.id === updated.id ? updated : r)));
       return true;
     } catch {
-      showAlert('Error', 'Failed to save recipe', 'error');
+      showAlert(t('common.error'), t('library.saveFailed'), 'error');
       return false;
     }
   };
@@ -239,14 +241,14 @@ export function useRecipeLibrary() {
         `Apply this change to my saved recipe ${recipe.id} and show me the updated version. Do not save it.\n${prompt}`,
       );
       if (!document) {
-        showAlert("Couldn't apply that", text || 'Could not refine the recipe.', 'error');
+        showAlert(t('library.applyFailedTitle'), text || t('library.refineFailedBody'), 'error');
         return false;
       }
       if (recipe.manually_edited) {
         const ok = await confirmAction(
-          'Overwrite manual edits?',
-          'Applying this AI suggestion will replace your manual changes to this recipe.',
-          { confirmLabel: 'Apply' },
+          t('library.overwriteTitle'),
+          t('library.overwriteBody'),
+          { confirmLabel: t('recipes.apply') },
         );
         if (!ok) return false;
       }
@@ -256,7 +258,7 @@ export function useRecipeLibrary() {
       applyRecipes(recipes.map(r => (r.id === updated.id ? updated : r)));
       return true;
     } catch {
-      showAlert('Error', 'Failed to refine recipe', 'error');
+      showAlert(t('common.error'), t('library.refineFailed'), 'error');
       return false;
     }
   };
@@ -267,13 +269,13 @@ export function useRecipeLibrary() {
   const generateVariant = async (recipe: Recipe, hint: string): Promise<VariantPreview | null> => {
     const doc = await ensureStructured(recipe);
     if (!doc) {
-      showAlert('Error', 'This recipe has no structured data to vary', 'error');
+      showAlert(t('common.error'), t('library.noStructuredData'), 'error');
       return null;
     }
     try {
       const result = await apiService.generateVariant(recipe.id, hint || undefined);
       if (!result.structured) {
-        showAlert('Error', 'Failed to generate a variant', 'error');
+        showAlert(t('common.error'), t('library.variantFailed'), 'error');
         return null;
       }
       return {
@@ -281,7 +283,7 @@ export function useRecipeLibrary() {
         structured: result.structured, variantOfRecipeId: result.variant_of_recipe_id,
       };
     } catch {
-      showAlert('Error', 'Failed to generate a variant', 'error');
+      showAlert(t('common.error'), t('library.variantFailed'), 'error');
       return null;
     }
   };
@@ -295,7 +297,7 @@ export function useRecipeLibrary() {
       applyRecipes([saved, ...recipes]);
       return true;
     } catch {
-      showAlert('Error', 'Failed to save the variant', 'error');
+      showAlert(t('common.error'), t('library.variantSaveFailed'), 'error');
       return false;
     }
   };
@@ -304,7 +306,7 @@ export function useRecipeLibrary() {
     try {
       return await apiService.getRecipeHistory(recipeId);
     } catch {
-      showAlert('Error', 'Failed to load edit history', 'error');
+      showAlert(t('common.error'), t('library.historyFailed'), 'error');
       return [];
     }
   };

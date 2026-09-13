@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Theme, useTheme } from '../../context/ThemeContext';
 import { type } from '../../theme';
 import { useAlert } from '../../context/AlertContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { ChatAttachment } from '../../types';
 import VoiceOverlay from '../../components/VoiceOverlay';
@@ -32,6 +33,7 @@ interface Props {
 const Composer: React.FC<Props> = ({ sending, onSend }) => {
   const { theme } = useTheme();
   const { showAlert } = useAlert();
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const [input, setInput] = useState('');
@@ -72,7 +74,7 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
   }, [addImage]);
 
   const pickImage = async () => {
-    if (images.length >= MAX_IMAGES) { showAlert('That is plenty', `You can attach up to ${MAX_IMAGES} photos at a time.`); return; }
+    if (images.length >= MAX_IMAGES) { showAlert(t('composer.tooManyTitle'), t('composer.tooManyBody', { count: MAX_IMAGES })); return; }
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) { showAlert('Permission required', 'Please grant photo library access.', 'error'); return; }
@@ -84,14 +86,14 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
       if (result.canceled || !result.assets[0]?.base64) return;
       const asset = result.assets[0];
       addImage({ uri: asset.uri, data: `data:${asset.mimeType ?? 'image/jpeg'};base64,${asset.base64}` });
-    } catch { showAlert('Error', 'Could not open that photo.', 'error'); }
+    } catch { showAlert(t('common.error'), t('composer.photoFailed'), 'error'); }
   };
 
   const submit = () => {
     const text = input.trim();
     // A photo on its own is a complete ask; the agent is told what the ref means.
     if ((!text && images.length === 0) || sending) return;
-    onSend(text || 'What recipe is in this photo?', images.map(i => ({ type: 'image', data: i.data })));
+    onSend(text || t('composer.photoFallbackPrompt'), images.map(i => ({ type: 'image', data: i.data })));
     setInput('');
     setImages([]);
   };
@@ -110,7 +112,7 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
                 <Image source={{ uri: image.uri }} style={styles.thumb} />
                 <TouchableOpacity
                   style={styles.thumbRemove}
-                  accessibilityLabel="Remove photo"
+                  accessibilityLabel={t('composer.removePhoto')}
                   onPress={() => setImages(prev => prev.filter((_, j) => j !== i))}
                 >
                   <Ionicons name="close" size={13} color={theme.onAccent} />
@@ -124,7 +126,7 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="Ask for a recipe, a change, or a week…"
+          placeholder={t('composer.placeholder')}
           placeholderTextColor={theme.muted}
           multiline
           // Without these, Safari/iOS offers passwords, cards and addresses over a prose field.
@@ -158,7 +160,7 @@ const Composer: React.FC<Props> = ({ sending, onSend }) => {
             style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
             onPress={submit}
             disabled={!canSend}
-            accessibilityLabel="Send"
+            accessibilityLabel={t('composer.send')}
           >
             {sending ? <ActivityIndicator size="small" color={theme.onAccent} /> : <Ionicons name="arrow-up" size={18} color={theme.onAccent} />}
           </TouchableOpacity>
