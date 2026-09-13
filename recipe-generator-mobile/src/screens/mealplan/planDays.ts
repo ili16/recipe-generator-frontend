@@ -5,22 +5,19 @@ import type { PlannedDay, PlannedMeal } from './DayCard';
 /**
  * Turn seven dates plus the plan cache into what the week view renders.
  *
- * The only real logic here: **a repeated dish is labelled as one.** The backend already
- * guarantees a no-cook day carries the last cooked day's recipe forward by construction
- * (`enforceNoCookCarryover`, `internal/service/mealplan.go`) and a batch-days preference makes the
- * model repeat a dish across N days — but `MealPlanItem` carries no flag saying so, so the
- * planner used to render a carried-forward day exactly like a freshly cooked one and the plan
- * looked broken rather than deliberate.
+ * **A leftover says so.** `meal_plan_items.source_item_id` (BACKLOG 9.11) names the item whose
+ * pot this meal eats again; the backend sets it when it carries a dish over a no-cook day
+ * (`enforceNoCookCarryover`) and the batch-cook control sets it for the days one pot covers.
+ * This used to be inferred — "the day before held this same `recipe_id`" — which is wrong
+ * whenever reality is: cook the same dish twice on purpose and the second day was labelled
+ * leftovers with no way to correct it.
  *
- * The signal is "the day before held this same `recipe_id`", which needs no API change. Which
- * *kind* of repeat it is comes from the user's own `meal_plan_no_cook_days`.
+ * Which *kind* of repeat it is stays derived from `meal_plan_no_cook_days`: that is genuinely a
+ * labelling question ("a day you chose not to cook" vs "a day you cooked ahead for"), not a
+ * data one.
  *
- * A day holds a meal per slot since BACKLOG 6.4, so the repeat question is asked **per dish**
- * rather than per day: Tuesday's lunch can be Monday's leftovers while Tuesday's dinner is
- * freshly cooked.
- *
- * `priorDay` is the day *before* the window — a Monday can carry Sunday's dish forward, and
- * without it the first day of every week mislabels itself as freshly cooked.
+ * `priorDay` is the day *before* the window — a Monday's leftovers can point at Sunday's cook,
+ * and without it that row cannot name the day it came from.
  */
 export function buildWeek(args: {
   weekStart: Date;
@@ -33,12 +30,19 @@ export function buildWeek(args: {
   const { weekStart, today, itemsByDate, priorDay, recipesById, noCookDays } = args;
   const todayISO = toISODate(today);
 
-  let previousIDs = new Set(priorDay.map(i => i.recipe_id));
-  // recipe id → the weekday whose cooking a run of repeats traces back to. Only a
-  // genuinely cooked day writes it, so Wednesday-after-two-leftover-days still says
-  // "from Monday", and a dish dropped for a day is cooked afresh when it returns.
-  let cookedOn: Record<number, string> = {};
-  for (const item of priorDay) cookedOn[item.recipe_id] = weekdayLabel(item.planned_on);
+  // Everything the cache holds, not just this week: a leftover names its cook by id, and the
+  // cook may sit outside the seven days on screen.
+  const all = [...priorDay, ...Object.values(itemsByDate).flat()];
+  const byID: Record<number, MealPlanItem> = {};
+  for (const item of all) byID[item.id] = item;
+
+  // Portions of one pot, in the order they are eaten. The cook is portion 1, so a leftover's
+  // own position is its index here + 2.
+  const siblings: Record<number, number[]> = {};
+  for (const item of [...all].sort(byDayThenSlot)) {
+    const src = item.source_item_id;
+    if (src != null) siblings[src] = [...(siblings[src] ?? []), item.id];
+  }
 
   return Array.from({ length: 7 }, (_, i) => {
     const date = addDays(weekStart, i);
@@ -47,32 +51,27 @@ export function buildWeek(args: {
     const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
     const isNoCookDay = noCookDays.includes(weekdayName(date));
 
-    // The same dish twice in one day (a lunch of last night's dinner, say) is a repeat
-    // too — the earlier slot is the cook, the later one is carried.
-    const servedToday = new Set<number>();
     const meals: PlannedMeal[] = items.map(item => {
-      const repeats = previousIDs.has(item.recipe_id) || servedToday.has(item.recipe_id);
-      servedToday.add(item.recipe_id);
-      const carriedFrom = repeats ? cookedOn[item.recipe_id] : undefined;
-      if (carriedFrom === undefined) cookedOn[item.recipe_id] = weekday;
+      const source = item.source_item_id != null ? byID[item.source_item_id] : undefined;
+      const portions = item.source_item_id != null ? siblings[item.source_item_id] ?? [] : [];
       return {
         item,
         slot: item.meal_slot,
-        kind: carriedFrom === undefined ? 'cook' : isNoCookDay ? 'leftover' : 'batch',
-        carriedFrom,
+        kind: item.source_item_id == null ? 'cook' : isNoCookDay ? 'leftover' : 'batch',
+        carriedFrom: source ? weekdayLabel(source.planned_on) : undefined,
+        // "Portion 2 of 3": how much is cooked belongs to the cooking day, so this is read,
+        // never edited, on a leftover row (BACKLOG 9.11).
+        portion: portions.length
+          ? { index: portions.indexOf(item.id) + 2, total: portions.length + 1 }
+          : undefined,
+        // How many *other* days this pot covers, so a cook that feeds a household for
+        // three days is not reported as cooking twice too much (BACKLOG 9.12).
+        covers: (siblings[item.id] ?? []).length,
         title: item.recipe_title,
         servings: item.servings ?? null,
         recipe: recipesById[item.recipe_id],
       };
     });
-
-    // A dish absent today breaks its chain: served again later it was cooked again, not
-    // carried forward.
-    const todayIDs = new Set(items.map(m => m.recipe_id));
-    cookedOn = Object.fromEntries(
-      Object.entries(cookedOn).filter(([id]) => todayIDs.has(Number(id))),
-    );
-    previousIDs = todayIDs;
 
     return {
       iso,
@@ -84,6 +83,11 @@ export function buildWeek(args: {
     };
   });
 }
+
+const SLOT_ORDER = { breakfast: 0, lunch: 1, dinner: 2, snack: 3 } as const;
+
+const byDayThenSlot = (a: MealPlanItem, b: MealPlanItem): number =>
+  a.planned_on.localeCompare(b.planned_on) || SLOT_ORDER[a.meal_slot] - SLOT_ORDER[b.meal_slot];
 
 const weekdayLabel = (iso: string): string => {
   const [y, m, d] = iso.split('-').map(Number);

@@ -421,6 +421,17 @@ class ApiService {
     return response.data;
   }
 
+  // Make one cooking day cover a set of later days (BACKLOG 9.13). `days` is the
+  // complete set of covered days, so passing a shorter list — or none — is the undo.
+  // One atomic write server-side; the response is the cook plus its leftovers.
+  async setBatchCook(itemId: number, days: string[], servings?: number): Promise<MealPlanItem[]> {
+    const response = await this.client.post<MealPlanItem[]>(
+      `${API_ENDPOINTS.MEAL_PLAN_ITEMS}/${itemId}/covers`,
+      { days, ...(servings ? { servings } : {}) },
+    );
+    return response.data;
+  }
+
   async deleteMealPlanItem(itemId: number): Promise<void> {
     await this.client.delete(`${API_ENDPOINTS.MEAL_PLAN_ITEMS}/${itemId}`);
   }

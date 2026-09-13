@@ -26,6 +26,7 @@ const EMPTY_PREFS: UserPreferences = {
   meal_plan_no_cook_days: [],
   meal_plan_batch_days: 1,
   week_start_day: 'monday',
+  household_size: null,
 };
 
 const PreferencesScreen: React.FC<Props> = () => {

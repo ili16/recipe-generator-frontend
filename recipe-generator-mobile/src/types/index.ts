@@ -160,6 +160,11 @@ export interface UserPreferences {
   meal_plan_batch_days: 1 | 2 | 3;
   // Which weekday the user's meal-plan week begins on.
   week_start_day: Weekday;
+  // How many people the user cooks for (BACKLOG 9.12) — a property of the household, not
+  // of a recipe, and where a newly planned day's servings starts from. null means they
+  // never said, which is not 1: with no number there is nothing to compare a recipe's
+  // yield against, so the planner claims no mismatch.
+  household_size: number | null;
 }
 
 export type GenerateMethod = 'description' | 'link' | 'image' | 'voice';
@@ -181,6 +186,10 @@ export interface MealPlanItem {
   // Portions wanted that day (BACKLOG 6.2). Absent means "as the recipe is written";
   // when set it scales that day's grocery quantities server-side.
   servings?: number | null;
+  // The item whose cooking produced this meal: this is that pot, eaten again here
+  // (BACKLOG 9.11). Absent/null means it is cooked on the day. Deleting the cook deletes
+  // its leftovers server-side (ON DELETE CASCADE).
+  source_item_id?: number | null;
 }
 
 // Where a pantry item lives, mirroring model.PantryCategories (BACKLOG 7.1).

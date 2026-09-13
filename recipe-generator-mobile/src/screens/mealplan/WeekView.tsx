@@ -14,7 +14,7 @@ import DayCard, { SLOT_LABEL } from './DayCard';
 import { buildWeek } from './planDays';
 import { usePreferences } from '../../hooks/usePreferences';
 import { radius, space } from '../../theme';
-import { Button, Sheet, SheetRow, Text } from '../../components/ui';
+import { Button, Chip, Sheet, SheetRow, Text } from '../../components/ui';
 
 interface Props {
   selectedDate: Date;
@@ -53,6 +53,9 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   const [sheetKey, setSheetKey] = useState<{ iso: string; slot: MealSlot } | null>(null);
   const [picker, setPicker] = useState<{ iso: string; slot: MealSlot } | null>(null);
   const [slotChoiceDay, setSlotChoiceDay] = useState<string | null>(null);
+  // The batch-cook control (BACKLOG 9.13): which cooking day is being extended, and the
+  // days ticked so far. One control, two directions — unticking a day is the undo.
+  const [covers, setCovers] = useState<{ item: MealPlanItem; picked: string[] } | null>(null);
 
   const { theme } = useTheme();
   const { showAlert, confirmAction } = useAlert();
@@ -108,6 +111,41 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     } catch (error) {
       console.error('Error setting servings:', error);
       showAlert('Error', 'Failed to change servings', 'error');
+    }
+  };
+
+  // "Cook once, eat three days", as one atomic write: the cooking day scales to feed the
+  // household for every day it covers, and each covered day becomes a leftover of it.
+  // This is the only place a leftover's quantity is ever edited — you increase the cook's,
+  // on the day it happens, and the leftovers follow (BACKLOG 9.13).
+  const applyCovers = async () => {
+    if (!covers) return;
+    const { item, picked } = covers;
+    const replacing = picked
+      .map(iso => mealAt(iso, item.meal_slot))
+      .filter(m => m && m.item.source_item_id !== item.id);
+    setCovers(null);
+    if (replacing.length) {
+      const ok = await confirmAction(
+        'Replace those meals?',
+        `${replacing.map(m => m!.title).join(', ')} would be replaced by leftovers of ${item.recipe_title}.`,
+        { confirmLabel: 'Replace', destructive: true },
+      );
+      if (!ok) return;
+    }
+    const household = prefs?.household_size ?? null;
+    try {
+      await apiService.setBatchCook(
+        item.id,
+        picked,
+        household != null ? household * (1 + picked.length) : undefined,
+      );
+      // The write touches rows on days other than the one edited, so re-read the window
+      // rather than patching the cache day by day.
+      ensureRange(fetchStartISO, weekEndISO);
+    } catch (error) {
+      console.error('Error setting batch cook:', error);
+      showAlert('Error', 'Failed to change which days this covers', 'error');
     }
   };
 
@@ -186,6 +224,9 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
             onSwap={slot => setPicker({ iso: day.iso, slot })}
             onMore={meal => setSheetKey({ iso: meal.item.planned_on, slot: meal.slot })}
             onAdd={() => setSlotChoiceDay(day.iso)}
+            onClear={meal => clear(meal.item)}
+            householdSize={prefs?.household_size ?? null}
+            onScale={(meal, servings) => setServings(meal.item, servings)}
           />
         ))}
 
@@ -239,6 +280,20 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
               `Change ${sheetWeekday} ${sheetMeal.item.planned_on} ${sheetMeal.slot} — it's currently ${sheetMeal.title}.`)}
           />
         )}
+        {sheetItem && sheetMeal?.kind === 'cook' && (
+          <SheetRow
+            label="Cook for more than one day"
+            onPress={() => {
+              setCovers({
+                item: sheetItem,
+                picked: days.flatMap(d => d.meals)
+                  .filter(m => m.item.source_item_id === sheetItem.id)
+                  .map(m => m.item.planned_on),
+              });
+              setSheetKey(null);
+            }}
+          />
+        )}
         {sheetItem && <SheetRow label="Clear" destructive onPress={() => clear(sheetItem)} />}
       </Sheet>
 
@@ -261,6 +316,30 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
             />
           );
         })}
+      </Sheet>
+
+      {/* Tick the days this pot covers. Reopening it on a day that already batch-cooks
+          shows what it covers now, so unticking is the undo (BACKLOG 9.13). */}
+      <Sheet visible={covers !== null} onClose={() => setCovers(null)} title="Which days does this cover?">
+        <View style={styles.coverDays}>
+          {days.filter(d => covers && d.iso > covers.item.planned_on).map(d => (
+            <Chip
+              key={d.iso}
+              label={d.weekday}
+              selected={covers!.picked.includes(d.iso)}
+              onPress={() => setCovers(c => c && ({
+                ...c,
+                picked: c.picked.includes(d.iso) ? c.picked.filter(x => x !== d.iso) : [...c.picked, d.iso],
+              }))}
+            />
+          ))}
+        </View>
+        {prefs?.household_size != null && covers && (
+          <Text variant="caption" tone="subtle">
+            {`Cooking for ${prefs.household_size * (1 + covers.picked.length)} — ${prefs.household_size} people × ${1 + covers.picked.length} days`}
+          </Text>
+        )}
+        <Button title="Confirm" fullWidth onPress={applyCovers} />
       </Sheet>
 
       <RecipePickerModal
@@ -296,6 +375,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     borderWidth: 1,
     borderColor: t.border,
   },
+  coverDays: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, paddingVertical: space.sm },
   prefsLinkRow: {
     flexDirection: 'row',
     alignItems: 'center',

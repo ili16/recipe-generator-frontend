@@ -128,10 +128,13 @@ src/
 │       │                         caption-sized week nav, one "Plan my week" button. All AI
 │       │                         work still happens in Chat (4.2)
 │       ├── DayCard.tsx         — one day: coloured header carrying the day's kind, then
-│       │                         title, summary, time/servings badges, Cook · Swap · ⋯
-│       ├── planDays.ts         — buildWeek(): derives cook/leftover/batch/empty per day.
-│       │                         THE logic in the planner — see planDays.check.ts
-│       ├── planDays.check.ts   — assert script for buildWeek (9 cases); run command in its header
+│       │                         title, summary, time/servings badges, Cook · Swap · ⋯.
+│       │                         A leftover row has one action instead (9.11) and a cook
+│       │                         whose portions miss the household says so inline (9.12)
+│       ├── planDays.ts         — buildWeek(): reads source_item_id to mark a meal
+│       │                         cook/leftover/batch/empty, and works out its portion
+│       │                         number. THE logic in the planner — see planDays.check.ts
+│       ├── planDays.check.ts   — assert script for buildWeek (10 cases); run command in its header
 │       ├── pickerRows.ts       — orders the picker for the slot being filled (9.9): tagged
 │       │                         recipes first, the rest under "Other recipes". Ranked,
 │       │                         never filtered
@@ -196,7 +199,8 @@ Do not bypass this pattern when adding new authenticated calls.
 | GET | `usage` | — | required | `{spent_usd, cap_usd, period_start, pct_used}` |
 | GET | `recipes/:id/history` | — | required | `RecipeVersion[]` (newest first; `change_note` holds the AI prompt for `ai_edit` entries) |
 | GET | `meal-plan?starts_on=&ends_on=` | `ends_on` optional (defaults to `starts_on+6d`) | required | `MealPlanWeek` — `{starts_on, ends_on, items[]}`, one recipe per day, up to 42-day range |
-| POST | `meal-plan/items` | `{recipe_id, planned_on, start_time?}` | required | `MealPlanItem` — upserts by day |
+| POST | `meal-plan/items` | `{recipe_id, planned_on, servings?, meal_slot?}` | required | `MealPlanItem` — upserts by (day, slot); an omitted `servings` now defaults to the user's `household_size` server-side (BACKLOG 9.12) |
+| POST | `meal-plan/items/:id/covers` | `{days: string[], servings?}` — the **complete** set of days this pot covers, so a shorter list is the undo | required | `MealPlanItem[]` — the cook plus its leftovers, written in one transaction (BACKLOG 9.13) |
 | DELETE | `meal-plan/items/:id` | — | required | `204` |
 | POST | `meal-plan/variants/:recipe_id` | `{hint?}` | required* | `RecipeResponse & {variant_of_recipe_id}` — unsaved; persist via `add-recipe` |
 | GET | `preferences` | — | required | `UserPreferences` |
@@ -215,8 +219,8 @@ The backend provisions users just-in-time from the JWT `sub` claim; there is no 
 - `PatchRecipePayload` — PATCH body for manual edits
 - `RecipeVersion` — `{version, change_kind, change_note?, created_at, data}` — one entry from `GET recipes/:id/history`
 - `UserProfile` — `{name, email?, username?}`
-- `MealPlanItem` — `{id, recipe_id, recipe_title, planned_on, start_time}`; `MealPlanWeek` — `{starts_on, ends_on, items: MealPlanItem[]}`
-- `UserPreferences` — `{skill_level, dietary_prefs, disliked_ingredients, meal_plan_no_food_days: Weekday[], meal_plan_no_cook_days: Weekday[], meal_plan_batch_days: 1|2|3, week_start_day: Weekday}` — the scheduling fields feed the meal-plan AI's system prompt server-side (`no_food_days` skips the day entirely, `no_cook_days` is a "leftover day" that repeats the prior cooked day's dish). Edited in `PreferencesScreen` only — preferences are global, with no per-week scope (BACKLOG 4.4 deleted the override, and `cooking_cadence` with it). The two day lists are mutually exclusive, enforced in `PreferencesPanel` and again by `PATCH /preferences`
+- `MealPlanItem` — `{id, recipe_id, recipe_title, planned_on, meal_slot, servings?, source_item_id?}`; `MealPlanWeek` — `{starts_on, ends_on, items: MealPlanItem[]}`. `source_item_id` names the item whose pot this meal eats again (BACKLOG 9.11)
+- `UserPreferences` — `{skill_level, dietary_prefs, disliked_ingredients, meal_plan_no_food_days: Weekday[], meal_plan_no_cook_days: Weekday[], meal_plan_batch_days: 1|2|3, week_start_day: Weekday, household_size: number|null}` — the scheduling fields feed the meal-plan AI's system prompt server-side (`no_food_days` skips the day entirely, `no_cook_days` is a "leftover day" that repeats the prior cooked day's dish). Edited in `PreferencesScreen` only — preferences are global, with no per-week scope (BACKLOG 4.4 deleted the override, and `cooking_cadence` with it). The two day lists are mutually exclusive, enforced in `PreferencesPanel` and again by `PATCH /preferences`
 - `MealPlanAssignment` — one proposed day: `{recipe_id, variant, variant_of_recipe_id, planned_on, start_time}` — exactly one of `recipe_id`/`variant` is non-null
 - `MealPlanSuggestion` — `{status: 'applied'|'needs_clarification', message, low_variety, assignments[]}` — the AI suggest/chat response envelope
 
@@ -323,13 +327,13 @@ The replacement token set (warm palette, semantic slots, real scales, primitives
   header-right person icon added by BACKLOG 5.7. It is the only route to logout, Appearance and
   Preferences, so do not remove both.
 - **The meal planner carries real data-loss bugs** — see `../BACKLOG.md` 0.4, 0.5, 0.6 and Phase 4.
-- **A repeated dish is inferred, not reported.** `MealPlanItem` has no "this is a leftover" flag;
-  `planDays.buildWeek` derives it from "same `recipe_id` as the previous day" plus
-  `meal_plan_no_cook_days`. It is right for every plan the backend produces, but a user who
-  manually assigns the same recipe two days running gets it labelled a batch day. Add a server
-  field if that ever matters.
-- **`WeekView` fetches `weekStart - 1`** so a Monday carrying Sunday's dish forward is labelled
-  correctly. Do not "tidy" that back to a 7-day range.
+- **A leftover is stored, not guessed** (BACKLOG 9.11). `MealPlanItem.source_item_id` names the
+  item whose pot this meal eats again; `planDays.buildWeek` reads it. Only *leftover vs batch*
+  is still derived, from `meal_plan_no_cook_days` — that is a labelling question, not a data one.
+  A leftover row offers exactly one action ("Not eating this"), because every other one edits a
+  plan and the food already exists.
+- **`WeekView` fetches `weekStart - 1`** so a Monday whose cook was Sunday can name the day it
+  came from. Do not "tidy" that back to a 7-day range.
 
 ## Editing Guidance
 

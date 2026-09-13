@@ -107,13 +107,22 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
     });
   }, [persistItems]);
 
+  // Mirrors the DB's ON DELETE CASCADE on meal_plan_items.source_item_id (BACKLOG 9.11):
+  // deleting a cook deletes every leftover of it server-side, so the cache has to drop
+  // them too — on any day, not just this one — or the week shows meals that no longer
+  // exist until the next fetch.
   const removeItem = useCallback((item: MealPlanItem) => {
     setItemsByDate(prev => {
-      const day = prev[item.planned_on];
-      if (!day) return prev;
-      const next = { ...prev };
-      const kept = day.filter(i => i.id !== item.id);
-      if (kept.length) next[item.planned_on] = kept; else delete next[item.planned_on];
+      const gone = (i: MealPlanItem) => i.id === item.id || i.source_item_id === item.id;
+      const next: Record<string, MealPlanItem[]> = {};
+      let changed = false;
+      for (const [iso, day] of Object.entries(prev)) {
+        const kept = day.filter(i => !gone(i));
+        if (kept.length !== day.length) changed = true;
+        if (kept.length) next[iso] = kept;
+        else if (day.length === 0) next[iso] = day;
+      }
+      if (!changed) return prev;
       persistItems(next);
       return next;
     });

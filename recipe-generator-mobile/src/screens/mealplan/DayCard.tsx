@@ -27,6 +27,10 @@ export interface PlannedMeal {
   kind: Exclude<DayKind, 'empty'>;
   /** For a repeat: the weekday whose dish this is. */
   carriedFrom?: string;
+  /** For a repeat: which portion of the cook's pot this is, and how many it makes in all. */
+  portion?: { index: number; total: number };
+  /** For a cook: how many *later* days this one pot also covers. 0 for an ordinary day. */
+  covers: number;
   title: string;
   /** Portions wanted that day (BACKLOG 6.2); null falls back to what the recipe yields. */
   servings?: number | null;
@@ -66,9 +70,15 @@ interface Props {
   onMore: (meal: PlannedMeal) => void;
   /** Add another meal to a day that already has one (BACKLOG 6.4). */
   onAdd: () => void;
+  /** The one action a leftover row offers (BACKLOG 9.11). */
+  onClear: (meal: PlannedMeal) => void;
+  /** How many people the user cooks for (BACKLOG 9.12); null when they never said. */
+  householdSize: number | null;
+  /** Scale a cooking day to the portions it needs. */
+  onScale: (meal: PlannedMeal, servings: number) => void;
 }
 
-const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd }) => {
+const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd, onClear, householdSize, onScale }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
@@ -131,6 +141,9 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd }) => {
           onCook={onCook}
           onSwap={onSwap}
           onMore={onMore}
+          onClear={onClear}
+          householdSize={householdSize}
+          onScale={onScale}
         />
       ))}
 
@@ -155,13 +168,23 @@ const MealRow: React.FC<{
   onCook: (recipe: Recipe) => void;
   onSwap: (slot: MealSlot) => void;
   onMore: (meal: PlannedMeal) => void;
-}> = ({ meal, weekday, showSlot, divided, onCook, onSwap, onMore }) => {
+  onClear: (meal: PlannedMeal) => void;
+  householdSize: number | null;
+  onScale: (meal: PlannedMeal, servings: number) => void;
+}> = ({ meal, weekday, showSlot, divided, onCook, onSwap, onMore, onClear, householdSize, onScale }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const doc = meal.recipe?.structured;
   const minutes = totalTimeMinutes(doc);
   const repeat = meal.kind !== 'cook';
+
+  // BACKLOG 9.12: servings was carrying two meanings at once, so nothing could notice a
+  // recipe yielding 2 planned for a household of 5. One pot has to cover the household
+  // for every day it feeds — this day plus the ones its leftovers cover.
+  const planned = meal.servings ?? doc?.servings ?? null;
+  const needed = householdSize != null ? householdSize * (1 + meal.covers) : null;
+  const mismatch = !repeat && planned != null && needed != null && planned !== needed;
 
   return (
     <View style={[styles.body, divided && styles.divided]}>
@@ -185,6 +208,22 @@ const MealRow: React.FC<{
         <Text variant="body" tone="subtle" numberOfLines={2}>{doc.summary}</Text>
       ) : null}
 
+      {/* A fact and the one-tap fix, where the servings badge already is: not a modal, not
+          a blocking error, not a red border (BACKLOG 9.12). */}
+      {mismatch && (
+        <TouchableOpacity
+          style={styles.mismatch}
+          onPress={() => onScale(meal, needed!)}
+          accessibilityRole="button"
+          accessibilityLabel={`Makes ${planned}, cooking for ${needed}. Scale to ${needed}.`}
+        >
+          <Ionicons name="alert-circle-outline" size={14} color={theme.accent} />
+          <Text variant="caption" tone="accent">
+            {`Makes ${planned} · cooking for ${needed} — scale it?`}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.badges}>
         {minutes > 0 && (
           <Badge
@@ -193,20 +232,47 @@ const MealRow: React.FC<{
             icon={<Ionicons name="time-outline" size={12} color={theme.accent} />}
           />
         )}
-        {(meal.servings ?? doc?.servings) != null && (
+        {/* How much gets cooked belongs to the day that cooks, so a leftover reads its
+            share of that pot rather than a number it could edit (BACKLOG 9.11). */}
+        {repeat ? (
+          meal.portion && (
+            <Badge
+              tone="neutral"
+              label={`Portion ${meal.portion.index} of ${meal.portion.total}`}
+              icon={<Ionicons name="people-outline" size={12} color={theme.accent} />}
+            />
+          )
+        ) : (meal.servings ?? doc?.servings) != null ? (
           <Badge
             tone="neutral"
             label={meal.servings != null ? `Cooking for ${meal.servings}` : `${doc?.servings} servings`}
             icon={<Ionicons name="people-outline" size={12} color={theme.accent} />}
           />
-        )}
+        ) : null}
       </View>
 
+      {/* A leftover is food that already exists, so every action that edits a *plan* was
+          nonsense on it: swapping the contents of the fridge, stepping up how much of it was
+          cooked, asking the assistant to change a plate. One decision is left — am I eating
+          this — so that is the one control (BACKLOG 9.11). */}
+      {repeat ? (
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={styles.ghostBtn}
+            onPress={() => onClear(meal)}
+            accessibilityRole="button"
+            accessibilityLabel={`Not eating ${weekday} ${SLOT_LABEL[meal.slot].toLowerCase()}`}
+          >
+            <Ionicons name="close" size={14} color={theme.subtext} />
+            <Text variant="label" tone="subtle">Not eating this</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
       <View style={styles.actions}>
         {/* Cook needs the full recipe, which the library cache may not hold yet for a recipe
             saved elsewhere this session. No recipe, no button — rather than a button that
             fails. */}
-        {meal.recipe && !repeat && (
+        {meal.recipe && (
           <TouchableOpacity style={styles.cookBtn} onPress={() => onCook(meal.recipe!)} accessibilityRole="button">
             <Ionicons name="flame-outline" size={14} color={theme.onAccent} />
             <Text variant="label" style={{ color: theme.onAccent }}>Start cooking</Text>
@@ -225,6 +291,7 @@ const MealRow: React.FC<{
           <Ionicons name="ellipsis-horizontal" size={16} color={theme.subtext} />
         </TouchableOpacity>
       </View>
+      )}
     </View>
   );
 };
@@ -264,6 +331,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   emptyBody: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  mismatch: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   actions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs },
   cookBtn: {
     flexDirection: 'row', alignItems: 'center', gap: space.xs,

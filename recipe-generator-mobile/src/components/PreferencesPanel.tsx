@@ -122,6 +122,21 @@ const PreferencesPanel: React.FC<Props> = ({ value, onChange }) => {
         ))}
       </View>
 
+      {/* Asked once, ever, and the number every planned day starts from (BACKLOG 9.12).
+          Blank is a real answer — "never said" — so nothing claims a mismatch until it
+          has been set. */}
+      <Text style={styles.label}>How many people do you cook for?</Text>
+      <View style={styles.chipRow}>
+        {[1, 2, 3, 4, 5, 6].map(n => (
+          <Chip
+            key={n}
+            label={String(n)}
+            selected={value.household_size === n}
+            onPress={() => onChange({ ...value, household_size: value.household_size === n ? null : n })}
+          />
+        ))}
+      </View>
+
       <Text style={styles.label}>Days you skip a meal entirely</Text>
       <View style={styles.chipRow}>
         {WEEKDAYS.map(({ value: v, label }) => (
