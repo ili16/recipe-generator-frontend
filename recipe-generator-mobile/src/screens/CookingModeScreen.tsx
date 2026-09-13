@@ -43,6 +43,7 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
   if (s.phase === 'done') {
     return (
       <DonePhase
+        recipeId={s.recipe.id}
         recipeName={s.recipe.recipename}
         steps={s.steps}
         notes={s.notes}

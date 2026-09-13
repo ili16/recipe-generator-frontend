@@ -274,6 +274,24 @@ export const Screen: React.FC<{
   );
 };
 
+/* ── SignInRequired ───────────────────────────────────────────────────────── */
+
+/** The gate every signed-in-only screen shows. `children` holds any extra way out. */
+export const SignInRequired: React.FC<{
+  message: string;
+  onSignIn: () => void;
+  children?: ReactNode;
+}> = ({ message, onSignIn, children }) => (
+  <Screen center>
+    <View style={{ alignItems: 'center', gap: space.sm }}>
+      <Text variant="title">Sign in required</Text>
+      <Text tone="subtle" style={{ textAlign: 'center' }}>{message}</Text>
+      <Button title="Sign In" onPress={onSignIn} style={{ marginTop: space.md }} />
+      {children}
+    </View>
+  </Screen>
+);
+
 /* ── Sheet ────────────────────────────────────────────────────────────────── */
 
 /** Bottom sheet: tap the scrim to dismiss. No drag handle — nothing needs one yet. */

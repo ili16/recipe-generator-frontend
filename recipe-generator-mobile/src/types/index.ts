@@ -17,10 +17,20 @@ export interface Recipe {
   // cooking time and batch size without loading every document. Undefined = unknown.
   servings?: number | null;
   total_minutes?: number | null;
+  // Per-serving calorie estimate, the one macro the card shows (BACKLOG 6.8). Absent =
+  // not estimated, and must render as no badge at all rather than "0 kcal".
+  calories?: number | null;
+  // How many of this recipe's ingredients the user already has, out of how many it lists
+  // (BACKLOG 7.3). Matched on the ingredient name alone, so a different unit form still
+  // counts. Both 0 — or absent, on a payload from before 7.3 — means no badge.
+  pantry_have?: number;
+  pantry_total?: number;
   created_at?: string;
   // When the user last marked this cooked (BACKLOG 6.3). Absent = never. Recently
   // cooked recipes are held back from meal-plan suggestions server-side.
   last_cooked_at?: string | null;
+  // How the user rated their last cook, 1–5 (BACKLOG 6.7). Absent = never rated.
+  cooked_rating?: number | null;
   // The read-only share link's token (BACKLOG 8.4), or absent when not shared.
   // Owner-only: the public read never carries it.
   share_token?: string | null;
@@ -172,6 +182,21 @@ export interface MealPlanItem {
   // Portions wanted that day (BACKLOG 6.2). Absent means "as the recipe is written";
   // when set it scales that day's grocery quantities server-side.
   servings?: number | null;
+}
+
+// Where a pantry item lives, mirroring model.PantryCategories (BACKLOG 7.1).
+export type PantryCategory = 'fridge' | 'freezer' | 'produce' | 'spices_dry';
+
+// One thing the user has in the house (GET /pantry). `name` and `unit` come back
+// normalised by the server — lowercased, and kg/l folded into g/ml — which is what lets a
+// pantry item be compared with a recipe's ingredient at all (BACKLOG 7.1).
+export interface PantryItem {
+  id: number;
+  name: string;
+  quantity?: number | null;
+  unit?: string | null;
+  category: PantryCategory;
+  expires_on?: string | null; // YYYY-MM-DD
 }
 
 // The shopping aisles a grocery line groups under, mirroring model.GroceryCategories.

@@ -13,6 +13,7 @@ import LoginScreen from '../screens/LoginScreen';
 import CookingModeScreen from '../screens/CookingModeScreen';
 import MealPlanScreen from '../screens/MealPlanScreen';
 import GroceryListScreen from '../screens/GroceryListScreen';
+import PantryScreen from '../screens/PantryScreen';
 import { Recipe } from '../types';
 
 export type RootStackParamList = {
@@ -26,6 +27,7 @@ export type RootStackParamList = {
   CookingMode: { recipe: Recipe };
   MealPlan: undefined;
   GroceryList: undefined;
+  Pantry: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -98,6 +100,11 @@ const AppNavigator: React.FC = () => {
         name="GroceryList"
         component={GroceryListScreen}
         options={{ title: 'Grocery List', ...topLevel }}
+      />
+      <Stack.Screen
+        name="Pantry"
+        component={PantryScreen}
+        options={{ title: 'Pantry', ...topLevel }}
       />
     </Stack.Navigator>
   );

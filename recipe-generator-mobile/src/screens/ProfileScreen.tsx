@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import apiService from '../services/apiService';
 import authService from '../services/authService';
 import { UserProfile } from '../types';
 import Loading from '../components/Loading';
@@ -68,6 +69,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     setLoading(true);
     try {
       await authService.logout();
+      apiService.cachedPreferences = null;
       setIsAuthenticated(false);
       setProfile(null);
       navigation.navigate('Chat');

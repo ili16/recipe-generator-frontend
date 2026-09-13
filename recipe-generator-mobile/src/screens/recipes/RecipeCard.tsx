@@ -58,6 +58,10 @@ const RecipeCard: React.FC<Props> = ({
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const memberOf = collections.filter(c => c.recipe_ids.includes(recipe.id));
+  // Absent on a payload from before 7.3 (and on the meal-plan variant preview), so both
+  // default to 0 — which is also what "no pantry match to show" looks like.
+  const pantryHave = recipe.pantry_have ?? 0;
+  const pantryTotal = recipe.pantry_total ?? 0;
 
   const startEdit = async () => {
     const doc = (await ensureStructured(recipe)) ?? {
@@ -133,8 +137,22 @@ const RecipeCard: React.FC<Props> = ({
           {originLabel(recipe) && (
             <Text style={styles.variantOfCaption}>{originLabel(recipe)}</Text>
           )}
-          {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0 || variantCount > 0 || !!recipe.share_token) && (
+          {((recipe.tags ?? []).length > 0 || recipe.manually_edited || memberOf.length > 0 || variantCount > 0 || !!recipe.share_token || recipe.calories != null || pantryHave > 0) && (
             <View style={styles.tagBadgeRow}>
+              {/* Pantry match (BACKLOG 7.3). Only ever shown when the caller actually has
+                  something: an empty pantry would otherwise brand every recipe "0/8". */}
+              {pantryHave > 0 && (
+                <Badge
+                  label={pantryHave === pantryTotal ? `Pantry ready (${pantryTotal})` : `${pantryHave}/${pantryTotal} in pantry`}
+                  icon={<Ionicons name="file-tray-stacked-outline" size={11} color={theme.accent} />}
+                />
+              )}
+              {recipe.calories != null && (
+                <Badge
+                  label={`${recipe.calories} kcal`}
+                  icon={<Ionicons name="flame-outline" size={11} color={theme.accent} />}
+                />
+              )}
               {!!recipe.share_token && (
                 <Badge label="Shared" icon={<Ionicons name="link" size={11} color={theme.accent} />} />
               )}

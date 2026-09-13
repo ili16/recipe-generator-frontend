@@ -6,12 +6,14 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import apiService from '../services/apiService';
 import authService from '../services/authService';
-import { GroceryCategory, GroceryLine, UserPreferences } from '../types';
+import { GroceryCategory, GroceryLine, PantryCategory } from '../types';
 import { groceryCheckedKey } from '../constants';
 import { useTheme, Theme } from '../context/ThemeContext';
 import { space, radius } from '../theme';
-import { Text } from '../components/ui';
+import { Text, SignInRequired } from '../components/ui';
 import { useEscapeBack } from '../hooks/useEscapeBack';
+import { usePreferences } from '../hooks/usePreferences';
+import { useIsAuthenticated } from '../hooks/useIsAuthenticated';
 import { toISODate, addDays, startOfWeek } from '../utils/mealPlanDates';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroceryList'>;
@@ -23,6 +25,17 @@ const CATEGORY_LABELS: Record<GroceryCategory, string> = {
   dairy: 'Dairy & Chilled',
   pantry: 'Pantry & Dry Goods',
   other: 'Other',
+};
+
+// Where a ticked-off line lands in the pantry (BACKLOG 7.2). A shopping aisle and a pantry
+// shelf are not the same axis — everything chilled goes in the fridge whether it was bought
+// from the meat counter or the dairy one — so this is a mapping, not a shared enum.
+const PANTRY_SHELF: Record<GroceryCategory, PantryCategory> = {
+  produce: 'produce',
+  protein: 'fridge',
+  dairy: 'fridge',
+  pantry: 'spices_dry',
+  other: 'spices_dry',
 };
 
 // Identity of a line across reloads: the server consolidates by item + unit, so that pair
@@ -39,15 +52,20 @@ const formatAmount = (line: GroceryLine): string => {
 
 /**
  * The week's shopping list (BACKLOG 6.1). Derived, never stored: every load re-aggregates the
- * plan as it stands, so dropping a meal drops its lines. The only local state is which lines are
- * ticked off, kept per user and per week in AsyncStorage — a tick is about this shopping trip on
- * this device, not an account-level fact.
+ * plan as it stands, so dropping a meal drops its lines. Which lines are ticked off is kept per
+ * user and per week in AsyncStorage — a tick is about this shopping trip on this device, not an
+ * account-level fact — but the tick itself has one durable effect: it adds the line to the
+ * pantry, and unticking removes it again (BACKLOG 7.2).
  */
 const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
-  const [prefs, setPrefs] = useState<UserPreferences | null>(null);
+  const authed = useIsAuthenticated();
+  const prefs = usePreferences();
   const [lines, setLines] = useState<GroceryLine[] | null>(null);
   const [error, setError] = useState(false);
-  const [checked, setChecked] = useState<Record<string, true>>({});
+  // Value is the pantry item the tick created (BACKLOG 7.2), so unticking knows what to
+  // remove again. `true` is the legacy shape from before 7.2 and from a failed write: still
+  // ticked, just with no pantry row behind it.
+  const [checked, setChecked] = useState<Record<string, number | true>>({});
   const [userId, setUserId] = useState<string | null>(null);
   const [anchor, setAnchor] = useState(() => new Date());
   const { theme } = useTheme();
@@ -58,16 +76,16 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
   const weekEndISO = toISODate(addDays(startOfWeek(anchor, prefs?.week_start_day ?? 'monday'), 6));
 
   useEffect(() => {
-    apiService.getPreferences().then(setPrefs).catch(error => console.error('Error loading preferences:', error));
     authService.getUserId().then(setUserId).catch(() => {});
   }, []);
 
   const load = useCallback(() => {
+    if (!authed) return;
     setError(false);
     apiService.getGroceryList(weekStartISO, weekEndISO)
       .then(list => setLines(list.lines))
       .catch(err => { console.error('Error loading grocery list:', err); setError(true); });
-  }, [weekStartISO, weekEndISO]);
+  }, [authed, weekStartISO, weekEndISO]);
 
   // Re-read on focus for the same reason WeekView does: the assistant writes to the plan
   // server-side, and this list is only ever as current as the plan it was built from.
@@ -81,14 +99,42 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
       .catch(() => setChecked({}));
   }, [userId, weekStartISO]);
 
+  const persistChecked = useCallback((next: Record<string, number | true>) => {
+    if (userId) AsyncStorage.setItem(groceryCheckedKey(userId, weekStartISO), JSON.stringify(next)).catch(() => {});
+  }, [userId, weekStartISO]);
+
+  // Ticking a line puts it in the pantry, unticking takes it back out (BACKLOG 7.2) — the
+  // only way a pantry stays accurate without data entry. The tick itself is applied
+  // immediately and never waits on the network: a failed write leaves the line ticked with
+  // no pantry row, which is the same state every tick had before 7.2.
   const toggle = (line: GroceryLine) => {
     const key = lineKey(line);
-    setChecked(prev => {
-      const next = { ...prev };
-      if (next[key]) delete next[key]; else next[key] = true;
-      if (userId) AsyncStorage.setItem(groceryCheckedKey(userId, weekStartISO), JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    const was = checked[key];
+    const next = { ...checked };
+    if (was) delete next[key]; else next[key] = true;
+    setChecked(next);
+    persistChecked(next);
+
+    if (was) {
+      if (typeof was === 'number') apiService.deletePantryItem(was).catch(err => console.error('Error removing pantry item:', err));
+      return;
+    }
+    apiService.savePantryItem({
+      name: line.item,
+      quantity: line.quantity ?? null,
+      unit: line.unit ?? null,
+      category: PANTRY_SHELF[line.category] ?? 'spices_dry',
+      expires_on: null,
+    })
+      .then(item => setChecked(prev => {
+        // Only record the id if the line is still ticked — the user may have unticked it
+        // while the write was in flight, in which case it is already deleted.
+        if (!prev[key]) return prev;
+        const withID = { ...prev, [key]: item.id };
+        persistChecked(withID);
+        return withID;
+      }))
+      .catch(err => console.error('Error adding pantry item:', err));
   };
 
   // The server sorts by aisle already, so grouping is a single pass that keeps that order.
@@ -103,6 +149,19 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
   }, [lines]);
 
   const remaining = (lines ?? []).filter(l => !checked[lineKey(l)]).length;
+
+  if (authed === null) {
+    return <ActivityIndicator style={styles.pad} color={theme.accent} />;
+  }
+
+  if (!authed) {
+    return (
+      <SignInRequired
+        message="Please sign in to build a shopping list from your plan"
+        onSignIn={() => navigation.navigate('Login')}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>

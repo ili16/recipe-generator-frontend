@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem } from '../types';
 import authService from './authService';
 import { getLocales } from 'expo-localization';
 
@@ -279,6 +279,26 @@ class ApiService {
     else await this.client.delete(path);
   }
 
+  /* ── Pantry (BACKLOG 7.1) ────────────────────────────────────────────────── */
+
+  async getPantry(): Promise<PantryItem[]> {
+    const response = await this.client.get<PantryItem[]>(API_ENDPOINTS.PANTRY);
+    return response.data;
+  }
+
+  // Upsert, not create: the server keys on the normalised name and unit, so saving
+  // "flour" twice updates the amount rather than adding a second line. The saved item
+  // comes back with its id, which is how a ticked grocery line remembers what to remove
+  // again when it is unticked (BACKLOG 7.2).
+  async savePantryItem(item: Omit<PantryItem, 'id'>): Promise<PantryItem> {
+    const response = await this.client.post<PantryItem>(API_ENDPOINTS.PANTRY, item);
+    return response.data;
+  }
+
+  async deletePantryItem(itemId: number): Promise<void> {
+    await this.client.delete(`${API_ENDPOINTS.PANTRY}/${itemId}`);
+  }
+
   /* ── Read-only share link (BACKLOG 8.4) ──────────────────────────────────── */
 
   // Turns sharing on and returns the token. Idempotent: an already-shared recipe
@@ -330,13 +350,21 @@ class ApiService {
     return response.data;
   }
 
+  // Last known preferences, kept so a screen can render the right week start on its first
+  // frame instead of showing the Monday default and visibly jumping once the fetch lands.
+  // Cleared on logout (authService.clearSession) — another account's week start is wrong,
+  // not just stale.
+  cachedPreferences: UserPreferences | null = null;
+
   async getPreferences(): Promise<UserPreferences> {
     const response = await this.client.get<UserPreferences>(API_ENDPOINTS.PREFERENCES);
+    this.cachedPreferences = response.data;
     return response.data;
   }
 
   async updatePreferences(p: Partial<UserPreferences>): Promise<UserPreferences> {
     const response = await this.client.patch<UserPreferences>(API_ENDPOINTS.PREFERENCES, p);
+    this.cachedPreferences = response.data;
     return response.data;
   }
 
@@ -349,9 +377,12 @@ class ApiService {
   }
 
   // Mark a recipe cooked now (BACKLOG 6.3) — keeps it out of meal-plan suggestions for
-  // a couple of weeks. Idempotent: re-marking just moves the timestamp forward.
-  async markCooked(recipeId: number): Promise<void> {
-    await this.client.put(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/cooked`);
+  // a couple of weeks. Idempotent: re-marking just moves the timestamp forward. An
+  // optional 1–5 rating (BACKLOG 6.7) rides the same call, so the automatic mark at the
+  // end of cooking mode and the stars tapped a moment later need no second endpoint;
+  // omitting it leaves any previous rating alone.
+  async markCooked(recipeId: number, rating?: number): Promise<void> {
+    await this.client.put(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/cooked`, rating ? { rating } : {});
   }
 
   async unmarkCooked(recipeId: number): Promise<void> {

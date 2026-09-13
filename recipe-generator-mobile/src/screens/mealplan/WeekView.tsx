@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import apiService from '../../services/apiService';
-import { Recipe, MealPlanItem, MealSlot, MEAL_SLOTS, UserPreferences } from '../../types';
+import { Recipe, MealPlanItem, MealSlot, MEAL_SLOTS } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { useMealPlanContext } from '../../context/MealPlanContext';
@@ -12,6 +12,7 @@ import { RootStackParamList } from '../../navigation/AppNavigator';
 import RecipePickerModal from './RecipePickerModal';
 import DayCard, { PlannedMeal } from './DayCard';
 import { buildWeek } from './planDays';
+import { usePreferences } from '../../hooks/usePreferences';
 import { radius, space } from '../../theme';
 import { Button, Sheet, SheetRow, Text } from '../../components/ui';
 
@@ -36,7 +37,7 @@ interface Props {
  * what is saved and hands over a prompt.
  */
 const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) => {
-  const [prefs, setPrefs] = useState<UserPreferences | null>(null);
+  const prefs = usePreferences();
   const weekStart = useMemo(() => startOfWeek(selectedDate, prefs?.week_start_day ?? 'monday'), [selectedDate, prefs?.week_start_day]);
   // One day before the window: a carried-forward Monday takes its dish from Sunday, and without
   // that day loaded the first card of every week mislabels itself as freshly cooked.
@@ -61,10 +62,6 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   // back from the chat thread instead of trusting the cache we left with.
   useEffect(() => navigation.addListener('focus', () => ensureRange(fetchStartISO, weekEndISO)),
     [navigation, fetchStartISO, weekEndISO, ensureRange]);
-
-  useEffect(() => {
-    apiService.getPreferences().then(setPrefs).catch(error => console.error('Error loading preferences:', error));
-  }, []);
 
   const askAssistant = (prompt: string) => {
     setSheetMeal(null);

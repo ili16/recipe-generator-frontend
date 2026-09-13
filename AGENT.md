@@ -94,7 +94,7 @@ src/
 │   ├── AppNavigator.tsx        — native stack; RootStackParamList
 │   ├── AppShell.tsx            — layout shell above the navigator: the Sidebar rail on wide
 │   │                             web, the three bottom tabs on narrow (BACKLOG 5.7)
-│   └── navItems.ts             — the 3 real destinations + Profile. `route` is required, so a
+│   └── navItems.ts             — the 5 real destinations + Profile. `route` is required, so a
 │                                 route-less "Soon" entry no longer typechecks
 ├── screens/
 │   ├── ChatScreen.tsx          — the ONLY creation surface: one agent thread (POST /chat),
@@ -115,6 +115,13 @@ src/
 │   ├── ProfileScreen.tsx       — user info + logout
 │   ├── PreferencesScreen.tsx   — wraps PreferencesPanel
 │   ├── LoginScreen.tsx         — Keycloak login trigger
+│   ├── GroceryListScreen.tsx   — the week's shopping list (BACKLOG 6.1), grouped by aisle.
+│   │                             Derived from the plan on every load; ticks live in
+│   │                             AsyncStorage per user+week, and a tick also writes the
+│   │                             line into the pantry (7.2)
+│   ├── PantryScreen.tsx        — what the user has in the house (7.1): add/remove, expiry
+│   │                             badges, a "use first" group derived from the dates, and
+│   │                             "find recipes using these" as a chat turn (7.4)
 │   ├── MealPlanScreen.tsx      — auth gate + MealPlanProvider; renders WeekView, the only view
 │   └── mealplan/
 │       ├── WeekView.tsx        — the planner, rebuilt by BACKLOG 4.7: seven DayCards, a
@@ -136,6 +143,8 @@ src/
 ├── types/index.ts              — all shared TypeScript interfaces
 └── utils/
     ├── mealPlanDates.ts        — plain-Date helpers
+    ├── pantryExpiry.ts         — days-until/label maths for the pantry (7.4), with
+    │                             pantryExpiry.check.ts as its assert script
     ├── recipeOrigin.ts         — "From seriouseats.com · 8 Sep" for a saved recipe (3.7)
     ├── recipesCache.ts         — saved-recipe cache
     └── recipeTime.ts           — total/prep/cook minute display logic
