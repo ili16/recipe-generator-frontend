@@ -411,11 +411,10 @@ class ApiService {
   // that slot, leaving the day's other meals alone; BACKLOG 6.4). Because it upserts,
   // re-posting the same recipe with a different `servings` is also how a planned day's
   // servings get changed (BACKLOG 6.2). Omitting mealSlot means dinner.
-  async addMealPlanItem(recipeId: number, plannedOn: string, startTime?: string, servings?: number, mealSlot?: MealSlot): Promise<MealPlanItem> {
+  async addMealPlanItem(recipeId: number, plannedOn: string, servings?: number, mealSlot?: MealSlot): Promise<MealPlanItem> {
     const response = await this.client.post<MealPlanItem>(API_ENDPOINTS.MEAL_PLAN_ITEMS, {
       recipe_id: recipeId,
       planned_on: plannedOn,
-      ...(startTime ? { start_time: startTime } : {}),
       ...(servings ? { servings } : {}),
       ...(mealSlot ? { meal_slot: mealSlot } : {}),
     });

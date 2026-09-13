@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTheme, Theme } from '../../context/ThemeContext';
@@ -8,21 +7,14 @@ import { useMealPlanContext } from '../../context/MealPlanContext';
 import { toISODate } from '../../utils/mealPlanDates';
 import { totalTimeMinutes } from '../../utils/recipeTime';
 import { RootStackParamList } from '../../navigation/AppNavigator';
+import { MealSlot } from '../../types';
 import { Badge, Text } from '../../components/ui';
 import { radius, space } from '../../theme';
 
-// Local notifications aren't supported on web (expo-notifications), so skip the handler
-// there entirely — matches the Platform.OS guard around scheduling below.
-if (Platform.OS !== 'web') {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
-}
+// Roughly when each meal stops being the thing you cook next. Only used to pick which of
+// today's meals the banner shows — nothing is scheduled off it, so being an hour out
+// costs a banner that reads one meal ahead, not a notification at the wrong time.
+const slotEndsByHour: Record<MealSlot, number> = { breakfast: 11, lunch: 15, dinner: 22, snack: 22 };
 
 interface Props {
   navigation: NativeStackScreenProps<RootStackParamList, 'MealPlan'>['navigation'];
@@ -37,8 +29,9 @@ interface Props {
  * separate feature reached from another screen. (Shopping, the middle step, is its own
  * destination now — `GroceryListScreen`, BACKLOG 6.1.)
  *
- * Still owns the best-effort local push reminder timed to when prep should start, and still lives
- * inside MealPlanProvider so it reads today's item from the shared cache.
+ * Lives inside MealPlanProvider so it reads today's item from the shared cache. It used to also
+ * schedule a local push at the item's start_time — dropped with the column in BACKLOG 9.5, since
+ * nothing in the client could ever set that time.
  */
 const TodayBanner: React.FC<Props> = ({ navigation }) => {
   const { itemsByDate, recipes, ensureRange } = useMealPlanContext();
@@ -51,36 +44,13 @@ const TodayBanner: React.FC<Props> = ({ navigation }) => {
   // A day can hold several meals now (BACKLOG 6.4). The banner answers "what should I
   // cook next", so it takes the first of today's meals whose start time is still ahead,
   // and falls back to the last one once the day is over.
+  // The server returns a day's meals in slot order, so the first whose slot has not yet
+  // passed is the next one to cook.
   const todayMeals = itemsByDate[todayISO] ?? [];
-  const nowHHMM = new Date().toTimeString().slice(0, 8);
-  const item = todayMeals.find(m => m.start_time >= nowHHMM) ?? todayMeals[todayMeals.length - 1] ?? null;
+  const nowHour = new Date().getHours();
+  const item = todayMeals.find(m => nowHour < slotEndsByHour[m.meal_slot]) ?? todayMeals[todayMeals.length - 1] ?? null;
   const fullRecipe = item ? recipes.find(r => r.id === item.recipe_id) : undefined;
   const totalMinutes = totalTimeMinutes(fullRecipe?.structured);
-
-  useEffect(() => {
-    if (Platform.OS === 'web' || !item) return;
-    (async () => {
-      try {
-        const { status: existing } = await Notifications.getPermissionsAsync();
-        const granted = existing === 'granted' || (await Notifications.requestPermissionsAsync()).status === 'granted';
-        if (!granted) return;
-
-        await Notifications.cancelAllScheduledNotificationsAsync();
-        const [h, m] = item.start_time.split(':').map(Number);
-        const startAt = new Date();
-        startAt.setHours(h, m, 0, 0);
-        const prepAt = new Date(startAt.getTime() - totalMinutes * 60_000);
-        if (prepAt.getTime() <= Date.now()) return; // already past prep time today
-
-        await Notifications.scheduleNotificationAsync({
-          content: { title: 'Time to start prepping', body: item.recipe_title },
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: prepAt },
-        });
-      } catch (error) {
-        console.error('Error scheduling meal-plan reminder:', error);
-      }
-    })();
-  }, [item, totalMinutes]);
 
   // An unplanned today is still an answer, and the useful one is "ask, and it will be planned".
   if (!item) {

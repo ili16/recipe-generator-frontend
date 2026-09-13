@@ -73,7 +73,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     const { iso, slot } = picker;
     setPicker(null);
     try {
-      upsertItem(await apiService.addMealPlanItem(recipe.id, iso, undefined, undefined, slot));
+      upsertItem(await apiService.addMealPlanItem(recipe.id, iso, undefined, slot));
     } catch (error) {
       console.error('Error assigning recipe:', error);
       showAlert('Error', 'Failed to add recipe to plan', 'error');
@@ -86,7 +86,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   const setServings = async (item: MealPlanItem, servings: number) => {
     if (servings < 1 || servings > 99) return;
     try {
-      upsertItem(await apiService.addMealPlanItem(item.recipe_id, item.planned_on, item.start_time, servings, item.meal_slot));
+      upsertItem(await apiService.addMealPlanItem(item.recipe_id, item.planned_on, servings, item.meal_slot));
     } catch (error) {
       console.error('Error setting servings:', error);
       showAlert('Error', 'Failed to change servings', 'error');

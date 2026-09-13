@@ -177,7 +177,6 @@ export interface MealPlanItem {
   recipe_id: number;
   recipe_title: string;
   planned_on: string; // YYYY-MM-DD
-  start_time: string; // HH:MM:SS
   meal_slot: MealSlot;
   // Portions wanted that day (BACKLOG 6.2). Absent means "as the recipe is written";
   // when set it scales that day's grocery quantities server-side.
@@ -233,7 +232,6 @@ export interface MealPlanAssignment {
   variant: RecipeDocument | null;
   variant_of_recipe_id: number | null;
   planned_on: string; // YYYY-MM-DD
-  start_time: string; // HH:MM:SS
   servings: number | null;
 }
 

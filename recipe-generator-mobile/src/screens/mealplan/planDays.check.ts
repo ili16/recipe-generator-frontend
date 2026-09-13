@@ -17,7 +17,7 @@ import { buildWeek } from './planDays';
 
 let nextID = 1;
 const item = (iso: string, recipeId: number, title: string, slot: MealSlot = 'dinner'): MealPlanItem =>
-  ({ id: nextID++, recipe_id: recipeId, recipe_title: title, planned_on: iso, start_time: '18:00:00', meal_slot: slot });
+  ({ id: nextID++, recipe_id: recipeId, recipe_title: title, planned_on: iso, meal_slot: slot });
 
 const weekStart = new Date(2026, 8, 7); // Mon 2026-09-07 … Sun 2026-09-13
 const today = new Date(2026, 8, 9); // Wednesday
