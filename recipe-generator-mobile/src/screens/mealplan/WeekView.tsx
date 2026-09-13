@@ -10,7 +10,7 @@ import { useMealPlanContext } from '../../context/MealPlanContext';
 import { toISODate, addDays, startOfWeek } from '../../utils/mealPlanDates';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import RecipePickerModal from './RecipePickerModal';
-import DayCard from './DayCard';
+import DayCard, { SLOT_LABEL } from './DayCard';
 import { buildWeek } from './planDays';
 import { usePreferences } from '../../hooks/usePreferences';
 import { radius, space } from '../../theme';
@@ -45,7 +45,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   const weekStartISO = toISODate(weekStart);
   const weekEndISO = toISODate(addDays(weekStart, 6));
 
-  const { itemsByDate, recipes, ensureRange, upsertItem, removeItem } = useMealPlanContext();
+  const { itemsByDate, recipes, ensureRange, refreshRecipes, upsertItem, removeItem } = useMealPlanContext();
   // A sheet and a picker are both about one *slot* of one day since BACKLOG 6.4, so both
   // carry the slot they were opened for. The sheet holds the day+slot rather than the
   // PlannedMeal itself: a snapshot goes stale the moment the stepper writes, so the number
@@ -55,25 +55,41 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   const [slotChoiceDay, setSlotChoiceDay] = useState<string | null>(null);
 
   const { theme } = useTheme();
-  const { showAlert } = useAlert();
+  const { showAlert, confirmAction } = useAlert();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   useEffect(() => { ensureRange(fetchStartISO, weekEndISO); }, [fetchStartISO, weekEndISO, ensureRange]);
 
   // The assistant writes to the plan server-side, so re-read the week whenever we come
   // back from the chat thread instead of trusting the cache we left with.
-  useEffect(() => navigation.addListener('focus', () => ensureRange(fetchStartISO, weekEndISO)),
-    [navigation, fetchStartISO, weekEndISO, ensureRange]);
+  // The assistant also *saves* recipes, and the library was fetched once per provider mount,
+  // so a recipe saved from chat was missing from the picker entirely (BACKLOG 9.9).
+  useEffect(() => navigation.addListener('focus', () => {
+    ensureRange(fetchStartISO, weekEndISO);
+    refreshRecipes();
+  }), [navigation, fetchStartISO, weekEndISO, ensureRange, refreshRecipes]);
 
   const askAssistant = (prompt: string) => {
     setSheetKey(null);
     navigation.navigate('Chat', { prompt });
   };
 
+  // Writing to a taken slot is a delete plus an insert server-side (storage/mealplan.go),
+  // so ask first — the agent path already does, and the UI path silently destroyed a meal
+  // (BACKLOG 9.10). An empty slot still writes silently: adding is not a decision.
   const assign = async (recipe: Recipe) => {
     if (!picker) return;
     const { iso, slot } = picker;
+    const taken = mealAt(iso, slot);
     setPicker(null);
+    if (taken) {
+      const ok = await confirmAction(
+        'Replace this meal?',
+        `${SLOT_LABEL[slot]} on ${dayOf(iso)?.weekday ?? iso} is ${taken.title}. Planning ${recipe.recipename} removes it.`,
+        { confirmLabel: 'Replace', destructive: true },
+      );
+      if (!ok) return;
+    }
     try {
       upsertItem(await apiService.addMealPlanItem(recipe.id, iso, undefined, slot));
     } catch (error) {
@@ -119,6 +135,9 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     recipesById,
     noCookDays: prefs?.meal_plan_no_cook_days ?? [],
   }), [weekStart, itemsByDate, fetchStartISO, recipesById, prefs?.meal_plan_no_cook_days]);
+
+  const dayOf = (iso: string) => days.find(d => d.iso === iso);
+  const mealAt = (iso: string, slot: MealSlot) => dayOf(iso)?.meals.find(m => m.slot === slot);
 
   // Re-derived from `days` on every render, so a write through upsertItem is visible in the
   // open sheet (BACKLOG 9.8).
@@ -226,21 +245,28 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
       {/* Which meal the new dish is — asked only when adding a second one, since the
           empty card and Swap already know the slot they mean. */}
       <Sheet visible={slotChoiceDay !== null} onClose={() => setSlotChoiceDay(null)} title="Which meal?">
-        {MEAL_SLOTS.map(slot => (
-          <SheetRow
-            key={slot}
-            label={slot[0].toUpperCase() + slot.slice(1)}
-            onPress={() => {
-              setPicker({ iso: slotChoiceDay!, slot });
-              setSlotChoiceDay(null);
-            }}
-          />
-        ))}
+        {MEAL_SLOTS.map(slot => {
+          // A slot that is taken says so and says what it would cost, rather than reading
+          // like the three empty ones next to it (BACKLOG 9.10).
+          const taken = slotChoiceDay ? mealAt(slotChoiceDay, slot) : undefined;
+          return (
+            <SheetRow
+              key={slot}
+              label={taken ? `Replace ${SLOT_LABEL[slot].toLowerCase()} · ${taken.title}` : SLOT_LABEL[slot]}
+              destructive={!!taken}
+              onPress={() => {
+                setPicker({ iso: slotChoiceDay!, slot });
+                setSlotChoiceDay(null);
+              }}
+            />
+          );
+        })}
       </Sheet>
 
       <RecipePickerModal
         visible={picker !== null}
         recipes={recipes}
+        slot={picker?.slot}
         onSelect={assign}
         onClose={() => setPicker(null)}
       />

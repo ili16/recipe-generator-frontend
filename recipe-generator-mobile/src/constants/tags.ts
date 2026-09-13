@@ -88,3 +88,12 @@ export const TAGS_BY_GROUP: Record<TagGroup, TagDef[]> = ALL_TAGS.reduce(
     cuisine_vibe: [],
   } as Record<TagGroup, TagDef[]>
 );
+
+// Which meal-type tags make a recipe a likely candidate for a given slot. Used to *rank*
+// the picker, never to filter it — people eat pizza for breakfast (BACKLOG 9.9).
+export const SLOT_TAGS: Record<string, string[]> = {
+  breakfast: ['breakfast-brunch', 'beverages'],
+  lunch: ['main-courses', 'side-dishes', 'appetizers-starters'],
+  dinner: ['main-courses', 'side-dishes', 'sauces-dressings'],
+  snack: ['snacks', 'desserts', 'appetizers-starters', 'beverages'],
+};

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { MealPlanItem, MealSlot, Recipe } from '../../types';
+import { MealPlanItem, MealSlot, MEAL_SLOTS, Recipe } from '../../types';
 import { Theme, useTheme } from '../../context/ThemeContext';
 import { radius, space } from '../../theme';
 import { Badge, Text } from '../../components/ui';
@@ -51,7 +51,7 @@ const KIND_LABEL: Record<DayKind, string> = {
   empty: 'Nothing planned',
 };
 
-const SLOT_LABEL: Record<MealSlot, string> = {
+export const SLOT_LABEL: Record<MealSlot, string> = {
   breakfast: 'Breakfast',
   lunch: 'Lunch',
   dinner: 'Dinner',
@@ -73,6 +73,9 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd }) => {
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const allRepeats = day.meals.length > 0 && day.meals.every(m => m.kind !== 'cook');
+  // Every slot taken: "Add a meal" could only ever replace something, and a control whose
+  // one outcome is destroying something is not an add (BACKLOG 9.10).
+  const full = day.meals.length >= MEAL_SLOTS.length;
 
   // A header per kind, so the week has a shape you can read at a glance instead of seven
   // identical rows. Colour alone never carries it — the badge says the same thing in words.
@@ -131,7 +134,7 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd }) => {
         />
       ))}
 
-      <TouchableOpacity
+      {!full && <TouchableOpacity
         style={styles.addRow}
         onPress={onAdd}
         accessibilityRole="button"
@@ -139,7 +142,7 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd }) => {
       >
         <Ionicons name="add" size={14} color={theme.accent} />
         <Text variant="label" tone="accent">Add a meal</Text>
-      </TouchableOpacity>
+      </TouchableOpacity>}
     </View>
   );
 };

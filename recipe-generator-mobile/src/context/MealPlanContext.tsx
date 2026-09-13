@@ -11,6 +11,9 @@ interface MealPlanContextValue {
   itemsByDate: Record<string, MealPlanItem[]>;
   recipes: Recipe[];
   ensureRange: (startISO: string, endISO: string) => void;
+  /** Re-read the saved-recipe list — a recipe saved from chat this session is otherwise
+   *  absent from the picker until the app restarts (BACKLOG 9.9). */
+  refreshRecipes: () => void;
   upsertItem: (item: MealPlanItem) => void;
   removeItem: (item: MealPlanItem) => void;
 }
@@ -33,6 +36,15 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   // under the wrong key (and thus another account's data) can never happen.
   const userIdRef = useRef<string | null>(null);
 
+  const refreshRecipes = useCallback(() => {
+    apiService.getRecipes().then(list => {
+      setRecipes(list);
+      if (userIdRef.current) {
+        AsyncStorage.setItem(mealPlanCacheKeys(userIdRef.current).recipes, JSON.stringify(list)).catch(() => {});
+      }
+    }).catch(error => console.error('Error refreshing recipes:', error));
+  }, []);
+
   useEffect(() => {
     (async () => {
       const userId = await authService.getUserId();
@@ -54,12 +66,9 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
       } finally {
         hydrated.current = true;
       }
-      apiService.getRecipes().then(list => {
-        setRecipes(list);
-        AsyncStorage.setItem(keys.recipes, JSON.stringify(list)).catch(() => {});
-      }).catch(error => console.error('Error refreshing recipes:', error));
+      refreshRecipes();
     })();
-  }, []);
+  }, [refreshRecipes]);
 
   const persistItems = useCallback((next: Record<string, MealPlanItem[]>) => {
     if (!userIdRef.current) return;
@@ -111,7 +120,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [persistItems]);
 
   return (
-    <MealPlanContext.Provider value={{ itemsByDate, recipes, ensureRange, upsertItem, removeItem }}>
+    <MealPlanContext.Provider value={{ itemsByDate, recipes, ensureRange, refreshRecipes, upsertItem, removeItem }}>
       {children}
     </MealPlanContext.Provider>
   );

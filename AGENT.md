@@ -131,11 +131,15 @@ src/
 │       │                         title, summary, time/servings badges, Cook · Swap · ⋯
 │       ├── planDays.ts         — buildWeek(): derives cook/leftover/batch/empty per day.
 │       │                         THE logic in the planner — see planDays.check.ts
-│       ├── planDays.check.ts   — assert script for buildWeek (7 cases). The repo's only
-│       │                         runnable check; run command is in its header
+│       ├── planDays.check.ts   — assert script for buildWeek (9 cases); run command in its header
+│       ├── pickerRows.ts       — orders the picker for the slot being filled (9.9): tagged
+│       │                         recipes first, the rest under "Other recipes". Ranked,
+│       │                         never filtered
+│       ├── pickerRows.check.ts — assert script for pickerRows (9 cases)
 │       ├── TodayBanner.tsx     — the hero: "TONIGHT", the dish, badges, Start cooking. Also
 │       │                         owns the local prep-time notification (see 4.6)
-│       └── RecipePickerModal.tsx  — shared "choose a saved recipe" modal
+│       └── RecipePickerModal.tsx  — shared "choose a saved recipe" modal: search box, and
+│                                 slot-aware ordering via pickerRows.ts
 ├── services/
 │   ├── apiService.ts           — Axios client + one shared raw-fetch SSE reader (streamSSE);
 │   │                             every method rejects with the exported `ApiError`
