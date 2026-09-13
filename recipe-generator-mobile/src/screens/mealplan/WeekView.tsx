@@ -10,7 +10,7 @@ import { useMealPlanContext } from '../../context/MealPlanContext';
 import { toISODate, addDays, startOfWeek } from '../../utils/mealPlanDates';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import RecipePickerModal from './RecipePickerModal';
-import DayCard, { PlannedMeal } from './DayCard';
+import DayCard from './DayCard';
 import { buildWeek } from './planDays';
 import { usePreferences } from '../../hooks/usePreferences';
 import { radius, space } from '../../theme';
@@ -47,8 +47,10 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
 
   const { itemsByDate, recipes, ensureRange, upsertItem, removeItem } = useMealPlanContext();
   // A sheet and a picker are both about one *slot* of one day since BACKLOG 6.4, so both
-  // carry the slot they were opened for.
-  const [sheetMeal, setSheetMeal] = useState<PlannedMeal | null>(null);
+  // carry the slot they were opened for. The sheet holds the day+slot rather than the
+  // PlannedMeal itself: a snapshot goes stale the moment the stepper writes, so the number
+  // never moved and every tap re-sent the same value (BACKLOG 9.8).
+  const [sheetKey, setSheetKey] = useState<{ iso: string; slot: MealSlot } | null>(null);
   const [picker, setPicker] = useState<{ iso: string; slot: MealSlot } | null>(null);
   const [slotChoiceDay, setSlotChoiceDay] = useState<string | null>(null);
 
@@ -64,7 +66,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     [navigation, fetchStartISO, weekEndISO, ensureRange]);
 
   const askAssistant = (prompt: string) => {
-    setSheetMeal(null);
+    setSheetKey(null);
     navigation.navigate('Chat', { prompt });
   };
 
@@ -94,7 +96,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   };
 
   const clear = async (item: MealPlanItem) => {
-    setSheetMeal(null);
+    setSheetKey(null);
     try {
       await apiService.deleteMealPlanItem(item.id);
       removeItem(item);
@@ -118,8 +120,12 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     noCookDays: prefs?.meal_plan_no_cook_days ?? [],
   }), [weekStart, itemsByDate, fetchStartISO, recipesById, prefs?.meal_plan_no_cook_days]);
 
+  // Re-derived from `days` on every render, so a write through upsertItem is visible in the
+  // open sheet (BACKLOG 9.8).
+  const sheetDay = sheetKey ? days.find(d => d.iso === sheetKey.iso) : undefined;
+  const sheetMeal = sheetKey ? sheetDay?.meals.find(m => m.slot === sheetKey.slot) ?? null : null;
   const sheetItem = sheetMeal?.item ?? null;
-  const sheetWeekday = sheetMeal ? days.find(d => d.iso === sheetMeal.item.planned_on)?.weekday ?? '' : '';
+  const sheetWeekday = sheetDay?.weekday ?? '';
   const planned = days.filter(d => d.meals.length > 0).length;
   // Unset servings mean "as the recipe is written", so the stepper starts from what the
   // recipe yields (or 2, when the library cache doesn't know) rather than from zero.
@@ -159,7 +165,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
             day={day}
             onCook={recipe => navigation.navigate('CookingMode', { recipe })}
             onSwap={slot => setPicker({ iso: day.iso, slot })}
-            onMore={setSheetMeal}
+            onMore={meal => setSheetKey({ iso: meal.item.planned_on, slot: meal.slot })}
             onAdd={() => setSlotChoiceDay(day.iso)}
           />
         ))}
@@ -182,7 +188,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
         </TouchableOpacity>
       </ScrollView>
 
-      <Sheet visible={sheetMeal !== null} onClose={() => setSheetMeal(null)} title={sheetWeekday}>
+      <Sheet visible={sheetMeal !== null} onClose={() => setSheetKey(null)} title={sheetWeekday}>
         {sheetItem && (
           <View style={styles.servingsRow}>
             <Text variant="body">Cooking for</Text>
