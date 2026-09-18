@@ -12,6 +12,7 @@ import { toISODate, addDays, startOfWeek } from '../../utils/mealPlanDates';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import RecipePickerModal from './RecipePickerModal';
 import DayCard, { slotLabelKey } from './DayCard';
+import type { PlannedMeal } from './DayCard';
 import { buildWeek } from './planDays';
 import { usePreferences } from '../../hooks/usePreferences';
 import { radius, space } from '../../theme';
@@ -159,6 +160,50 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
     }
   };
 
+  // Marking a meal cooked is the one action here that reaches outside the plan: the meal
+  // leaves the week's grocery list and its ingredients come out of the pantry, in one
+  // server-side transaction. Both halves are reported back rather than applied quietly —
+  // an app that edits your fridge without saying so is one you stop trusting, and the
+  // deduction refuses to guess at anything it cannot convert.
+  const markCooked = async (meal: PlannedMeal) => {
+    setSheetKey(null);
+    try {
+      const { pantry } = await apiService.markMealCooked(meal.item.id);
+      upsertItem({ ...meal.item, cooked_at: new Date().toISOString() });
+      // A batch cook's leftovers read their state from this row, so re-read the window
+      // rather than patching each covered day by hand.
+      if (meal.covers > 0) ensureRange(fetchStartISO, weekEndISO);
+
+      const changes = pantry.applied.map(c => (c.removed
+        ? t('plan.pantryUsedUp', { name: c.name })
+        : `−${c.used}${c.unit ? ` ${c.unit}` : ''} ${c.name}`)).join(' · ');
+      const left = pantry.skipped.length
+        ? t('plan.pantryLeftAlone', { count: pantry.skipped.length, names: pantry.skipped.join(', ') })
+        : '';
+      showAlert(
+        changes ? t('plan.pantryUpdated', { changes }) : t('plan.pantryUnchanged'),
+        left || undefined,
+        'success',
+      );
+    } catch (error) {
+      console.error('Error marking meal cooked:', error);
+      showAlert(t('common.error'), t('plan.cookedFailed'), 'error');
+    }
+  };
+
+  const uncook = async (meal: PlannedMeal) => {
+    try {
+      await apiService.unmarkMealCooked(meal.item.id);
+      upsertItem({ ...meal.item, cooked_at: null });
+      if (meal.covers > 0) ensureRange(fetchStartISO, weekEndISO);
+      // Say the part the user cannot see: the meal is back, the pantry is not.
+      showAlert(t('plan.undoKeepsPantry'), undefined, 'success');
+    } catch (error) {
+      console.error('Error unmarking meal cooked:', error);
+      showAlert(t('common.error'), t('plan.cookedFailed'), 'error');
+    }
+  };
+
   const clear = async (item: MealPlanItem) => {
     setSheetKey(null);
     try {
@@ -238,6 +283,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
             onClear={meal => clear(meal.item)}
             householdSize={prefs?.household_size ?? null}
             onScale={(meal, servings) => setServings(meal.item, servings)}
+            onUncook={uncook}
           />
         ))}
 
@@ -290,6 +336,11 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
             onPress={() => askAssistant(
               `Change ${sheetWeekday} ${sheetMeal.item.planned_on} ${sheetMeal.slot} — it's currently ${sheetMeal.title}.`)}
           />
+        )}
+        {/* Only a cook can be marked: a leftover ate a pot that was already deducted, so
+            marking one would take a second set of ingredients for a meal that used none. */}
+        {sheetMeal?.kind === 'cook' && !sheetMeal.cooked && (
+          <SheetRow label={t('plan.markCooked')} onPress={() => markCooked(sheetMeal)} />
         )}
         {sheetItem && sheetMeal?.kind === 'cook' && (
           <SheetRow

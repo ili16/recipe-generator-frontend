@@ -51,6 +51,7 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
   const [unit, setUnit] = useState('');
   const [expiresOn, setExpiresOn] = useState('');
   const [category, setCategory] = useState<PantryCategory>('fridge');
+  const [staple, setStaple] = useState(false);
   const { theme } = useTheme();
   const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -74,12 +75,15 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
     setSaving(true);
     try {
       const parsed = parseFloat(quantity.replace(',', '.'));
+      // A staple carries no amount and no expiry on purpose: it is a yes/no, and the
+      // inputs for them are hidden while the toggle is on.
       const saved = await apiService.savePantryItem({
         name: name.trim(),
-        quantity: Number.isFinite(parsed) ? parsed : null,
-        unit: unit.trim() || null,
+        quantity: staple || !Number.isFinite(parsed) ? null : parsed,
+        unit: staple ? null : unit.trim() || null,
         category,
-        expires_on: expiresOn.trim() || null,
+        expires_on: staple ? null : expiresOn.trim() || null,
+        staple,
       });
       // Upsert: replace the row of the same id if it was already there, else append.
       setItems(prev => [...(prev ?? []).filter(i => i.id !== saved.id), saved]);
@@ -102,7 +106,31 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  const useFirst = (items ?? []).filter(i => i.expires_on != null && daysUntil(i.expires_on) <= USE_FIRST_DAYS);
+  // Both groups are derived, not stored — same reasoning as "Use first" above. A staple
+  // is an ordinary row on an ordinary shelf; what marks it out is one flag.
+  const staples = (items ?? []).filter(i => i.staple);
+  const useFirst = (items ?? []).filter(i => !i.staple && i.expires_on != null && daysUntil(i.expires_on) <= USE_FIRST_DAYS);
+
+  // The starter set, offered once and only while there are none. Names are localized
+  // because the normalised name is the join key: a German recipe asks for "salz", and an
+  // English staple list would never match it.
+  const addCommonStaples = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const names = t('pantry.commonStaples') as unknown as string[];
+      const saved = await Promise.all(names.map(n => apiService.savePantryItem({
+        name: n, quantity: null, unit: null, category: 'spices_dry', expires_on: null, staple: true,
+      })));
+      const ids = new Set(saved.map(i => i.id));
+      setItems(prev => [...(prev ?? []).filter(i => !ids.has(i.id)), ...saved]);
+    } catch (err) {
+      console.error('Error adding staples:', err);
+      setError(true);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // "Find recipes using these" is a chat turn, not new machinery (BACKLOG 7.4): the agent's
   // search_my_recipes tool answers it through its `ingredients` filter, and offers to invent
@@ -138,6 +166,7 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
           onSubmitEditing={add}
           returnKeyType="done"
         />
+        {!staple && (
         <View style={styles.row}>
           <TextInput
             autoComplete="off"
@@ -165,11 +194,29 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
             onChangeText={setExpiresOn}
           />
         </View>
+        )}
         <View style={styles.chipRow}>
           {CATEGORIES.map(c => (
             <Chip key={c.key} label={t(c.labelKey)} selected={category === c.key} onPress={() => setCategory(c.key)} />
           ))}
         </View>
+        <TouchableOpacity
+          style={styles.stapleRow}
+          onPress={() => setStaple(v => !v)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: staple }}
+          accessibilityLabel={t('pantry.staple')}
+        >
+          <Ionicons
+            name={staple ? 'checkbox' : 'square-outline'}
+            size={20}
+            color={staple ? theme.accent : theme.muted}
+          />
+          <View style={styles.flex}>
+            <Text>{t('pantry.staple')}</Text>
+            <Text variant="caption" tone="subtle">{t('pantry.stapleHint')}</Text>
+          </View>
+        </TouchableOpacity>
         <Button title={t('common.add')} onPress={add} loading={saving} disabled={!name.trim()} />
       </View>
 
@@ -177,6 +224,31 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.section}>
           <Text tone="danger">{t('pantry.loadFailed')}</Text>
           <Button title={t('common.retry')} variant="secondary" size="sm" onPress={load} />
+        </View>
+      )}
+
+      {staples.length > 0 ? (
+        <View style={styles.section}>
+          <Text variant="label" tone="subtle">{t('pantry.staples')}</Text>
+          {staples.map(item => (
+            <View key={item.id} style={styles.itemRow}>
+              <Text style={styles.flex}>{item.name}</Text>
+              <TouchableOpacity
+                onPress={() => remove(item)}
+                accessibilityRole="button"
+                accessibilityLabel={t('pantry.removeItem', { name: item.name })}
+                style={styles.removeButton}
+              >
+                <Ionicons name="close" size={18} color={theme.muted} />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      ) : items !== null && (
+        <View style={styles.section}>
+          <Text variant="label" tone="subtle">{t('pantry.staples')}</Text>
+          <Text variant="caption" tone="subtle">{t('pantry.stapleHint')}</Text>
+          <Button title={t('pantry.addCommon')} variant="secondary" size="sm" onPress={addCommonStaples} loading={saving} />
         </View>
       )}
 
@@ -196,7 +268,7 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
         <Text tone="subtle">{t('pantry.empty')}</Text>
       ) : (
         CATEGORIES.map(c => {
-          const section = (items ?? []).filter(i => i.category === c.key);
+          const section = (items ?? []).filter(i => !i.staple && i.category === c.key);
           if (section.length === 0) return null;
           return (
             <View key={c.key} style={styles.section}>
@@ -249,6 +321,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     color: t.text, backgroundColor: t.surface,
   },
   section: { gap: space.sm },
+  stapleRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.xs },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.xs },
   removeButton: { padding: space.xs },
 });

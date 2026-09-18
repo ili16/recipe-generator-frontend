@@ -16,11 +16,14 @@ import { currentLocale } from '../i18n';
 import { parseISODate } from '../utils/mealPlanDates';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { ChatApproval, ChatArtifact, ChatAttachment, ChatMessage, ChatSource } from '../types';
+import { ChatApproval, ChatArtifact, ChatAttachment, ChatMessage, ChatSource, RecipeDocument } from '../types';
 import { hostLabel } from '../utils/recipeOrigin';
 import { foldArtifact } from '../utils/chatArtifacts';
+import { diffRecipes, isEmptyDiff, diffSize, RecipeDiff } from '../utils/recipeDiff';
 import { describeApproval } from '../utils/chatApproval';
 import Composer from './chat/Composer';
+import ThreadList from './chat/ThreadList';
+import { useIsAuthenticated } from '../hooks/useIsAuthenticated';
 import { FeedbackPulse } from '../components/FeedbackPulse';
 
 // The home surface (BACKLOG.md 3.3): one thread that can generate, refine, save and plan,
@@ -74,6 +77,13 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [expiredRefs, setExpiredRefs] = useState<string[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [hydrating, setHydrating] = useState(false);
+  // Re-rendered on open so the History row can highlight the thread being read; the ref
+  // stays the source of truth for the turn in flight.
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const isAuthenticated = useIsAuthenticated();
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const conversationId = useRef<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -81,6 +91,25 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
   // Saved-recipe titles for week-plan cards, which carry ids rather than names.
   const [titles, setTitles] = useState<Record<number, string>>({});
+
+  // Every recipe the thread has shown, by the name a later card can refer to it under
+  // (BACKLOG.md 10.3). transform_recipe returns a *new* draft carrying `derived_from`, so
+  // this is how the new card finds the document it replaced and shows the difference. A
+  // saved recipe is filed under both spellings of its id, since the model writes either.
+  const docsByRef = useMemo(() => {
+    const byRef: Record<string, RecipeDocument> = {};
+    for (const m of messages) {
+      for (const a of m.artifacts ?? []) {
+        if (a.kind !== 'recipe') continue;
+        if (a.data.draft_ref) byRef[a.data.draft_ref] = a.data.document;
+        if (a.data.recipe_id != null) {
+          byRef[`recipe:${a.data.recipe_id}`] = a.data.document;
+          byRef[String(a.data.recipe_id)] = a.data.document;
+        }
+      }
+    }
+    return byRef;
+  }, [messages]);
   useEffect(() => {
     getCachedRecipes().then((recipes) => {
       if (recipes) setTitles(Object.fromEntries(recipes.map((r) => [r.id, r.recipename])));
@@ -145,11 +174,49 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         patch((m) => ({ ...m, error: NAMED_ERRORS.has(code) ? t(`chat.error.${code}`) : t('common.unknownError') }));
       }
     } finally {
+      setCurrentId(conversationId.current);
       setActiveTool(null);
       setSending(false);
       abortRef.current = null;
     }
   }, [t]);
+
+  // Reopening a thread (BACKLOG.md 10.4). The server has already folded each turn's
+  // messages and cards into bubbles, so this is a straight swap of the transcript — the
+  // one thing it has to get right is pointing `conversationId` at the thread *before* the
+  // next turn, or the follow-up would open a second conversation.
+  const openThread = useCallback(async (id: string) => {
+    abortRef.current?.abort();
+    setHistoryOpen(false);
+    setHydrating(true);
+    try {
+      const thread = await apiService.getConversation(id);
+      conversationId.current = thread.id;
+      setCurrentId(thread.id);
+      setExpiredRefs([]);
+      setMessages(thread.messages.map((m) => ({
+        role: m.role,
+        text: m.text,
+        attachmentCount: m.attachment_count || undefined,
+        artifacts: m.artifacts,
+      })));
+    } catch {
+      showAlert(t('chat.history.openFailedTitle'), t('chat.history.openFailedBody'), 'error');
+    } finally {
+      setHydrating(false);
+    }
+  }, [showAlert, t]);
+
+  // A new thread is the absence of one: drop the id and the transcript, and the next turn
+  // opens a fresh conversation server-side. Nothing is deleted — the old thread is in the
+  // list the moment this runs.
+  const newThread = useCallback(() => {
+    abortRef.current?.abort();
+    conversationId.current = null;
+    setCurrentId(null);
+    setExpiredRefs([]);
+    setMessages([]);
+  }, []);
 
   const send = useCallback(async (text: string, attachments: ChatAttachment[] = []) => {
     const message = text.trim();
@@ -185,7 +252,6 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   // saves through the same idempotent path as the save_recipe tool, so a second tap — or
   // a later "save it" — lands on the recipe already saved.
   const [savingRef, setSavingRef] = useState<string | null>(null);
-  const [expiredRefs, setExpiredRefs] = useState<string[]>([]);
   const saveDraft = useCallback(async (draftRef: string) => {
     const conversation = conversationId.current;
     if (!conversation || savingRef) return;
@@ -229,6 +295,41 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* The way back into an older conversation, and the way out of this one
+          (BACKLOG.md 10.4). Signed-in only: an anonymous thread lives in server memory
+          and has no row to list. */}
+      {isAuthenticated && (
+        <View style={[styles.threadBar, isWide && styles.wide]}>
+          <TouchableOpacity
+            style={styles.threadBarBtn}
+            onPress={() => setHistoryOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.history.title')}
+          >
+            <Ionicons name="time-outline" size={16} color={theme.subtext} />
+            <Text style={styles.threadBarText}>{t('chat.history.title')}</Text>
+          </TouchableOpacity>
+          {messages.length > 0 && (
+            <TouchableOpacity
+              style={styles.threadBarBtn}
+              onPress={newThread}
+              accessibilityRole="button"
+              accessibilityLabel={t('chat.history.new')}
+            >
+              <Ionicons name="add" size={16} color={theme.subtext} />
+              <Text style={styles.threadBarText}>{t('chat.history.new')}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      <ThreadList
+        visible={historyOpen}
+        currentId={currentId}
+        onClose={() => setHistoryOpen(false)}
+        onOpen={openThread}
+      />
+
       <ScrollView
         ref={scrollRef}
         style={styles.thread}
@@ -239,7 +340,9 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             whether it is eligible and renders nothing when it is not. */}
         <FeedbackPulse route="Chat" />
 
-        {messages.length === 0 && (
+        {hydrating && <ActivityIndicator color={theme.accent} />}
+
+        {messages.length === 0 && !hydrating && (
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>{t('chat.emptyTitle')}</Text>
             {(['chat.opener1', 'chat.opener2', 'chat.opener3'].map((k) => t(k))).map((o) => (
@@ -258,6 +361,7 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             styles={styles}
             t={t}
             titles={titles}
+            docsByRef={docsByRef}
             savingRef={savingRef}
             expiredRefs={expiredRefs}
             onSaveDraft={saveDraft}
@@ -290,6 +394,8 @@ interface TurnProps {
   t: Translate;
   styles: ReturnType<typeof makeStyles>;
   titles: Record<number, string>;
+  /** Every recipe the thread has shown, so a transformed card can diff against its source. */
+  docsByRef: Record<string, RecipeDocument>;
   /** Draft-save plumbing for recipe artifacts: which ref is in flight, which are gone. */
   savingRef: string | null;
   expiredRefs: string[];
@@ -299,7 +405,7 @@ interface TurnProps {
   onDecide: (approval: ChatApproval, approve: boolean) => void;
 }
 
-const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, savingRef, expiredRefs, onSaveDraft, sending, onDecide, t }) => {
+const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, docsByRef, savingRef, expiredRefs, onSaveDraft, sending, onDecide, t }) => {
   if (message.role === 'user') {
     return (
       <View style={styles.userBubble}>
@@ -326,6 +432,7 @@ const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, savingRef, 
           theme={theme}
           styles={styles}
           titles={titles}
+          docsByRef={docsByRef}
           t={t}
           savingRef={savingRef}
           expiredRefs={expiredRefs}
@@ -433,9 +540,9 @@ const ApprovalCard: React.FC<
 };
 
 const ArtifactCard: React.FC<
-  { artifact: ChatArtifact } & Pick<TurnProps, 'theme' | 'styles' | 'titles' | 'savingRef' | 'expiredRefs' | 'onSaveDraft' | 't'>
+  { artifact: ChatArtifact } & Pick<TurnProps, 'theme' | 'styles' | 'titles' | 'docsByRef' | 'savingRef' | 'expiredRefs' | 'onSaveDraft' | 't'>
 > = ({
-  artifact, theme, styles, titles, savingRef, expiredRefs, onSaveDraft, t,
+  artifact, theme, styles, titles, docsByRef, savingRef, expiredRefs, onSaveDraft, t,
 }) => {
   if (artifact.kind === 'recipe') {
     const doc = artifact.data.document;
@@ -467,6 +574,13 @@ const ArtifactCard: React.FC<
         ) : (
           <Text style={styles.draftTag}>{t('chat.unsavedDraft')}</Text>
         )}
+        <ChangeSummary
+          prev={artifact.data.derived_from ? docsByRef[artifact.data.derived_from] : undefined}
+          next={doc}
+          theme={theme}
+          styles={styles}
+          t={t}
+        />
         <RecipeView structured={doc} markdown="" />
       </View>
     );
@@ -492,11 +606,77 @@ const ArtifactCard: React.FC<
   );
 };
 
+// What this turn changed about the recipe, instead of a silently re-rendered card
+// (BACKLOG.md 10.3). Collapsed by default: the answer to "did it do what I asked" is the
+// one-line count, and the lines themselves are for when that is not enough. Renders
+// nothing at all when the turn produced a fresh recipe (no `prev`) or changed nothing —
+// an empty "Changes" heading is worse than no heading.
+const ChangeSummary: React.FC<
+  { prev?: RecipeDocument; next: RecipeDocument } & Pick<TurnProps, 'theme' | 'styles' | 't'>
+> = ({ prev, next, theme, styles, t }) => {
+  const diff = useMemo<RecipeDiff | null>(() => (prev ? diffRecipes(prev, next) : null), [prev, next]);
+  const [open, setOpen] = useState(false);
+  if (!diff || isEmptyDiff(diff)) return null;
+
+  const lines: Array<{ key: string; text: string; tone: 'added' | 'removed' | 'changed' }> = [
+    ...diff.fields.map((f) => ({
+      key: `f:${f.key}`,
+      text: t(`chat.diff.field.${f.key}`, { from: f.from, to: f.to }),
+      tone: 'changed' as const,
+    })),
+    ...diff.ingredients.changed.map((c) => ({
+      key: `c:${c.from}`,
+      text: t('chat.diff.changedLine', { from: c.from, to: c.to }),
+      tone: 'changed' as const,
+    })),
+    ...diff.ingredients.added.map((a) => ({ key: `a:${a}`, text: a, tone: 'added' as const })),
+    ...diff.ingredients.removed.map((r) => ({ key: `r:${r}`, text: r, tone: 'removed' as const })),
+  ];
+  if (diff.steps.changed.length) {
+    lines.push({
+      key: 'steps:changed',
+      text: t('chat.diff.stepsChanged', { count: diff.steps.changed.length, steps: diff.steps.changed.join(', ') }),
+      tone: 'changed',
+    });
+  }
+  if (diff.steps.added) {
+    lines.push({ key: 'steps:added', text: t('chat.diff.stepsAdded', { count: diff.steps.added }), tone: 'added' });
+  }
+  if (diff.steps.removed) {
+    lines.push({ key: 'steps:removed', text: t('chat.diff.stepsRemoved', { count: diff.steps.removed }), tone: 'removed' });
+  }
+
+  return (
+    <View style={styles.diffBox}>
+      <TouchableOpacity
+        style={styles.diffHeader}
+        onPress={() => setOpen((v) => !v)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={14} color={theme.subtext} />
+        <Text style={styles.diffTitle}>{t('chat.diff.title', { count: diffSize(diff) })}</Text>
+      </TouchableOpacity>
+      {open &&
+        lines.map((l) => (
+          <Text key={l.key} style={[styles.diffLine, styles[`diff_${l.tone}`]]} >
+            {l.tone === 'added' ? '+ ' : l.tone === 'removed' ? '− ' : '~ '}
+            {l.text}
+          </Text>
+        ))}
+    </View>
+  );
+};
+
 const makeStyles = (t: Theme) => StyleSheet.create({
   root: { flex: 1, backgroundColor: t.bg },
   thread: { flex: 1 },
   threadContent: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4, gap: 12 },
   wide: { maxWidth: layout.contentMaxWidth, width: '100%', alignSelf: 'center' },
+
+  threadBar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingTop: 8 },
+  threadBarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
+  threadBarText: { ...type.label, fontSize: 13, color: t.subtext },
 
   empty: { paddingVertical: 12, gap: 8 },
   emptyTitle: { ...type.title, fontSize: 22, lineHeight: 30, color: t.text, marginBottom: 8 },
@@ -513,6 +693,14 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   sourceBody: { flex: 1 },
   sourceLabel: { ...type.label, fontSize: 13, color: t.subtext },
   sourceDetail: { ...type.caption, color: t.muted },
+
+  diffBox: { backgroundColor: t.surfaceRaised, borderWidth: 1, borderColor: t.border, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, gap: 4 },
+  diffHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  diffTitle: { ...type.label, fontSize: 13, color: t.subtext },
+  diffLine: { ...type.body, fontSize: 13, lineHeight: 19 },
+  diff_added: { color: t.accent },
+  diff_removed: { color: t.muted, textDecorationLine: 'line-through' },
+  diff_changed: { color: t.subtext },
 
   card: { backgroundColor: t.surface, borderWidth: 1, borderColor: t.border, borderRadius: 14, padding: 14, gap: 6 },
   cardTitle: { ...type.title, fontSize: 16, lineHeight: 22, color: t.text },

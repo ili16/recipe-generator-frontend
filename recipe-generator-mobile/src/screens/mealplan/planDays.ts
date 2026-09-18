@@ -71,6 +71,10 @@ export function buildWeek(args: {
         // How many *other* days this pot covers, so a cook that feeds a household for
         // three days is not reported as cooking twice too much (BACKLOG 9.12).
         covers: (siblings[item.id] ?? []).length,
+        // A leftover is not cooked itself — the pot it came from was. Reading the source's
+        // mark is what makes a batch-cooked run go quiet together instead of the cooking
+        // day alone going grey while its leftovers still look outstanding.
+        cooked: (source ?? item).cooked_at != null,
         title: item.recipe_title,
         servings: item.servings ?? null,
         recipe: recipesById[item.recipe_id],

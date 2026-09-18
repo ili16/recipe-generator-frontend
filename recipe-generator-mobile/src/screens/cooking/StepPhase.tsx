@@ -7,7 +7,7 @@ import { Recipe } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
-import { fmtIngredient } from '../../components/RecipeView';
+import { fmtIngredient } from '../../utils/recipeIngredient';
 import { Badge } from '../../components/ui';
 import {
   Ingredient, phaseLabelKey, StepGroup, formatTimer, getStepIngredients, groupSpokenText,

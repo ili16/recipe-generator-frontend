@@ -159,7 +159,10 @@ src/
 │   │                             line into the pantry (7.2)
 │   ├── PantryScreen.tsx        — what the user has in the house (7.1): add/remove, expiry
 │   │                             badges, a "use first" group derived from the dates, and
-│   │                             "find recipes using these" as a chat turn (7.4)
+│   │                             "find recipes using these" as a chat turn (7.4). An
+│   │                             "Always in stock" toggle marks a staple (16.1) — it hides
+│   │                             amount and expiry, gets its own section, and there is a
+│   │                             one-tap localized starter list when none exist
 │   ├── MealPlanScreen.tsx      — auth gate + MealPlanProvider; renders WeekView, the only view
 │   └── mealplan/
 │       ├── WeekView.tsx        — the planner, rebuilt by BACKLOG 4.7: seven DayCards, a
@@ -168,10 +171,13 @@ src/
 │       ├── DayCard.tsx         — one day: coloured header carrying the day's kind, then
 │       │                         title, summary, time/servings badges, Cook · Swap · ⋯.
 │       │                         A leftover row has one action instead (9.11) and a cook
-│       │                         whose portions miss the household says so inline (9.12)
+│       │                         whose portions miss the household says so inline (9.12).
+│       │                         A cooked meal (16.3) dims, badges, and collapses to Undo
 │       ├── planDays.ts         — buildWeek(): reads source_item_id to mark a meal
 │       │                         cook/leftover/batch/empty, and works out its portion
-│       │                         number. THE logic in the planner — see planDays.check.ts
+│       │                         number. THE logic in the planner — see planDays.check.ts.
+│       │                         `cooked` is read from the *source* item, so a batch run
+│       │                         goes quiet together rather than the cook day alone (16.3)
 │       ├── planDays.check.ts   — assert script for buildWeek (10 cases); run command in its header
 │       ├── pickerRows.ts       — orders the picker for the slot being filled (9.9): tagged
 │       │                         recipes first, the rest under "Other recipes". Ranked,
@@ -194,6 +200,15 @@ src/
     ├── chatArtifacts.ts        — foldArtifact(): keys recipe artifacts by draft_ref across the
     │                             whole thread, so a save updates the card instead of adding one
     │                             (chatArtifacts.check.ts is its assert script)
+    ├── recipeDiff.ts           — diffRecipes(): what a transform changed (10.3). Keyed on the
+    │                             normalised ingredient name, so "250 g → 125 g flour" is a
+    │                             CHANGED line and only a different food is an add/remove;
+    │                             steps compared by position (recipeDiff.check.ts is its
+    │                             assert script). Rendered by ChatScreen's ChangeSummary,
+    │                             collapsed, off the artifact's `derived_from`
+    ├── recipeIngredient.ts     — fmtIngredient(): one ingredient as "250 g flour". Moved out
+    │                             of components/RecipeView by 10.3 so non-rendering code and
+    │                             its plain-node check script can use it
     ├── chatApproval.ts         — describeApproval(): what a pending write does, read off the
     │                             gated tool call's own args (10.2). Picks a catalog key rather
     │                             than writing a sentence — the summary has to exist in every
@@ -254,6 +269,8 @@ Do not bypass this pattern when adding new authenticated calls.
 | GET | `meal-plan?starts_on=&ends_on=` | `ends_on` optional (defaults to `starts_on+6d`) | required | `MealPlanWeek` — `{starts_on, ends_on, items[]}`, one recipe per day, up to 42-day range |
 | POST | `meal-plan/items` | `{recipe_id, planned_on, servings?, meal_slot?}` | required | `MealPlanItem` — upserts by (day, slot); an omitted `servings` now defaults to the user's `household_size` server-side (BACKLOG 9.12) |
 | POST | `meal-plan/items/:id/covers` | `{days: string[], servings?}` — the **complete** set of days this pot covers, so a shorter list is the undo | required | `MealPlanItem[]` — the cook plus its leftovers, written in one transaction (BACKLOG 9.13) |
+| POST | `meal-plan/items/:id/cooked` | `{rating?}` | required | `{pantry:{applied,skipped}}` — marks the meal cooked, takes its ingredients out of the pantry in one transaction (BACKLOG 16.3). **`applied` and `skipped` must both be shown**: `skipped` names what the server refused to guess at, and an app that edits your fridge silently is one you stop trusting. `404` when already marked — re-tapping never deducts twice |
+| DELETE | `meal-plan/items/:id/cooked` | — | required | `204` — undo. The meal returns to the plan and the grocery list; the pantry is **not** restored, which `WeekView` says out loud |
 | DELETE | `meal-plan/items/:id` | — | required | `204` |
 | POST | `meal-plan/variants/:recipe_id` | `{hint?}` | required* | `RecipeResponse & {variant_of_recipe_id}` — unsaved; persist via `add-recipe` |
 | GET | `household` | — | required | `Household` — or **204** when the caller is in none, which is a normal state and renders the create/join form (BACKLOG 15.1) |
@@ -299,7 +316,7 @@ lines) owns everything the user can hand over.
 
 | Unit | Owns |
 |------|------|
-| `ChatScreen` | the message list, `streamChat`'s event fold, `TOOL_LABELS`/`ERROR_MESSAGES`, the source cards read off `tool_start`'s args, the `{prompt}` route param the planner hands over |
+| `ChatScreen` | the message list, `streamChat`'s event fold, the `derived_from` → document lookup behind the change summary (10.3), `TOOL_LABELS`/`ERROR_MESSAGES`, the source cards read off `tool_start`'s args, the `{prompt}` route param the planner hands over |
 | `screens/chat/Composer` | the text field, photo attachments (picker + web paste, max 3), the mic button, and the send gate |
 | `hooks/useVoiceInput` | the three implementations behind `{isRecording, soundBars, toggle, abort}` |
 | `components/VoiceOverlay` | the listening modal (moved out of `screens/generate/` by 3.6) |
@@ -403,6 +420,11 @@ The replacement token set (warm palette, semantic slots, real scales, primitives
   Cook, plan, collect, vote and **Create variant** stay — copying is the way a non-owner is meant
   to get the version they want (15.7). Do not "fix" the missing buttons by re-enabling them: the
   server returns 404 for those writes.
+- **A staple's name is the join key, so the starter list is localized.** `pantry.commonStaples`
+  is a German list in German and an English one in English — the backend matches a pantry line
+  to an ingredient on the normalised name alone, so an English `salt` would never satisfy a
+  German recipe's `salz`. Adding a language means translating that array, not just the labels.
+
 - **The grocery list's ticks are still per-device** and per-user (`groceryCheckedKey`), so in a
   household two people shopping from one list do not see each other's check-offs — BACKLOG 15.9.
   The list itself *is* shared; only the ticks are not.

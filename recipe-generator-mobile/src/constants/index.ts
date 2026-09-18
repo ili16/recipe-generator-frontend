@@ -29,6 +29,7 @@ export const KEYCLOAK_CONFIG = {
 export const API_ENDPOINTS = {
   CHAT: 'chat',
   SAVE_CHAT_DRAFT: 'chat/drafts/save',
+  CONVERSATIONS: 'conversations',
   TRANSCRIBE_AUDIO: 'transcribe',
   UPDATE_RECIPE: 'update-recipe',
   GET_RECIPES: 'get-recipes',

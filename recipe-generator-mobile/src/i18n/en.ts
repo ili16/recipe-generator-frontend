@@ -53,10 +53,33 @@ const en = {
     unsavedDraft: 'Unsaved draft — say "save it" to keep it',
     proposalOnly: 'Proposal only — say "apply it" to put it on your plan',
     stopped: 'Stopped',
+    // What this turn changed about the recipe (BACKLOG 10.3) — the collapsed count, then
+    // one line per change. `steps` is a pre-joined list of numbers, not a count.
+    diff: {
+      title: { one: '%{count} change', other: '%{count} changes' },
+      changedLine: '%{from} → %{to}',
+      stepsChanged: { one: 'Step %{steps} rewritten', other: 'Steps %{steps} rewritten' },
+      stepsAdded: { one: '%{count} step added', other: '%{count} steps added' },
+      stepsRemoved: { one: '%{count} step removed', other: '%{count} steps removed' },
+      field: {
+        title: 'Renamed to %{to}',
+        servings: 'Servings %{from} → %{to}',
+        total_minutes: 'Total time %{from} → %{to} min',
+      },
+    },
     weekOf: 'Week of %{start} – %{end}',
     recipeNumber: 'Recipe #%{id}',
     saveFailedTitle: 'Could not save that',
     saveFailedBody: 'Try again in a moment.',
+    // The conversation list (BACKLOG 10.4) — every thread is kept, so "New" starts one
+    // rather than ending one.
+    history: {
+      title: 'History',
+      new: 'New chat',
+      empty: 'No conversations yet.',
+      openFailedTitle: 'Could not open that conversation',
+      openFailedBody: 'Try again in a moment.',
+    },
     source: {
       photo: 'Reading your photo',
       url: 'Reading %{host}',
@@ -276,6 +299,18 @@ const en = {
     swap: 'Swap',
     addMeal: 'Add a meal',
     notEatingThis: 'Not eating this',
+    // Marking a planned meal cooked (not the recipe — this pot). It leaves the grocery
+    // list and the pantry is deducted for it, so the app says what it changed.
+    markCooked: 'Mark as cooked',
+    cooked: 'Cooked',
+    undoCook: 'Not cooked after all',
+    cookedA11y: 'Mark %{weekday} %{slot} as cooked',
+    pantryUpdated: 'Pantry updated: %{changes}',
+    pantryUsedUp: '%{name} — used up',
+    pantryLeftAlone: { one: 'Left alone: %{names}', other: 'Left alone: %{names}' },
+    pantryUnchanged: 'Nothing in your pantry matched this meal.',
+    undoKeepsPantry: 'Back on your plan. The pantry was not put back.',
+    cookedFailed: 'Could not mark that as cooked.',
     pickSomethingFor: 'Pick something for %{weekday}',
     emptyDayA11y: '%{weekday} %{date}, nothing planned. Choose a recipe.',
     addMealA11y: 'Add another meal to %{weekday}',
@@ -431,6 +466,13 @@ const en = {
     today: 'today',
     tomorrow: 'tomorrow',
     inDays: { one: '%{count} day', other: '%{count} days' },
+    // Staples: the things a kitchen always has. They still count toward a recipe's
+    // pantry match; what marking one stops is the grocery list shopping for it.
+    staple: 'Always in stock',
+    stapleHint: 'Never on the grocery list, never deducted when you cook.',
+    staples: 'Always in stock',
+    addCommon: 'Add the usual staples',
+    commonStaples: ['salt', 'black pepper', 'water', 'oil', 'sugar', 'flour'],
   },
 
   cooking: {

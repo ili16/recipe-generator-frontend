@@ -207,6 +207,28 @@ export interface MealPlanItem {
   // (BACKLOG 9.11). Absent/null means it is cooked on the day. Deleting the cook deletes
   // its leftovers server-side (ON DELETE CASCADE).
   source_item_id?: number | null;
+  // When this meal was cooked and eaten. Set means it has left the grocery list and the
+  // pantry has already been deducted for it — a different fact from Recipe.last_cooked_at,
+  // which is about the recipe rather than this particular pot.
+  cooked_at?: string | null;
+}
+
+// One pantry line a cooked meal changed. `removed` means the item is gone entirely;
+// otherwise `remaining` is what is left, in the row's own unit. The app shows these
+// rather than editing someone's fridge silently.
+export interface PantryChange {
+  name: string;
+  used: number;
+  unit?: string | null;
+  remaining?: number | null;
+  removed?: boolean;
+}
+
+// What marking a meal cooked did to the pantry. `skipped` names the ingredients the
+// server would not guess at — no known conversion, or no amount recorded — so the app
+// can say so instead of implying they were deducted.
+export interface CookedResult {
+  pantry: { applied: PantryChange[]; skipped: string[] };
 }
 
 // Where a pantry item lives, mirroring model.PantryCategories (BACKLOG 7.1).
@@ -240,6 +262,10 @@ export interface PantryItem {
   unit?: string | null;
   category: PantryCategory;
   expires_on?: string | null; // YYYY-MM-DD
+  // "This kitchen always has this" — salt, pepper, oil. It still counts toward a recipe's
+  // pantry match, which is the point of marking one; what it stops is the grocery list
+  // shopping for it and a cooked meal deducting it.
+  staple?: boolean;
 }
 
 // The shopping aisles a grocery line groups under, mirroring model.GroceryCategories.
@@ -291,7 +317,11 @@ export interface MealPlanSuggestion {
 // A structured tool result the transcript renders as a card instead of prose.
 // `draft_ref` names an unsaved draft the agent can still transform; `recipe_id` a saved one.
 export type ChatArtifact =
-  | { kind: 'recipe'; data: { draft_ref?: string; recipe_id?: number; document: RecipeDocument } }
+  // `derived_from` is the draft_ref (or `recipe:<id>`) this document was transformed out
+  // of — set by transform_recipe and review_cook_flow, absent on a fresh generation. It
+  // is how the card finds its own before-state in the thread and shows what changed
+  // (BACKLOG.md 10.3) rather than silently replacing the recipe.
+  | { kind: 'recipe'; data: { draft_ref?: string; recipe_id?: number; derived_from?: string; document: RecipeDocument } }
   | { kind: 'week_plan'; data: { starts_on: string; ends_on: string; plan: MealPlanSuggestion } };
 
 // A mutating tool call the agent wants to make, held until the user approves it
@@ -344,6 +374,29 @@ export interface ChatMessage {
   stopped?: boolean;
   /** The write this turn is waiting on the user to approve (BACKLOG.md 10.2). */
   approval?: ChatApproval;
+}
+
+// A thread in the conversation list (BACKLOG.md 10.4). `title` is named server-side from
+// the first message and can be empty while that call is still in flight — the preview (the
+// thread's last readable message) stands in for it.
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  preview: string;
+  updated_at: string;
+}
+
+// One reopened thread. The server has already folded each turn's messages and cards into
+// the same bubbles the stream produces, so this drops straight into the transcript.
+export interface ConversationThread {
+  id: string;
+  title: string;
+  messages: {
+    role: 'user' | 'assistant';
+    text: string;
+    attachment_count?: number;
+    artifacts?: ChatArtifact[];
+  }[];
 }
 
 /* ── Feedback (BACKLOG 9.16) ───────────────────────────────────────────────── */

@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload, Household } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload, Household, CookedResult, ConversationSummary, ConversationThread } from '../types';
 import authService from './authService';
 import { currentLocale } from '../i18n';
 
@@ -413,6 +413,18 @@ class ApiService {
     return response.data;
   }
 
+  // The thread list and one reopened thread (BACKLOG.md 10.4). Signed-in only: an
+  // anonymous thread lives in server memory and has no row to list.
+  async listConversations(): Promise<ConversationSummary[]> {
+    const response = await this.client.get<ConversationSummary[]>(API_ENDPOINTS.CONVERSATIONS);
+    return response.data;
+  }
+
+  async getConversation(conversationId: string): Promise<ConversationThread> {
+    const response = await this.client.get<ConversationThread>(`${API_ENDPOINTS.CONVERSATIONS}/${conversationId}`);
+    return response.data;
+  }
+
   // Last known preferences, kept so a screen can render the right week start on its first
   // frame instead of showing the Monday default and visibly jumping once the fetch lands.
   // Cleared on logout (authService.clearSession) — another account's week start is wrong,
@@ -493,6 +505,26 @@ class ApiService {
       { days, ...(servings ? { servings } : {}) },
     );
     return response.data;
+  }
+
+  // Mark one planned meal cooked and eaten: it leaves the week's grocery list and its
+  // ingredients come out of the pantry, server-side and in one transaction. The result
+  // says what the pantry deduction changed and what it refused to guess at — the caller
+  // must show both, because the alternative is silently editing the user's fridge.
+  // A 404 means it was already marked; re-tapping never deducts twice.
+  async markMealCooked(itemId: number, rating?: number): Promise<CookedResult> {
+    const response = await this.client.post<CookedResult>(
+      `${API_ENDPOINTS.MEAL_PLAN_ITEMS}/${itemId}/cooked`,
+      rating ? { rating } : {},
+    );
+    return response.data;
+  }
+
+  // Undo a mis-tap. The meal goes back on the week and back onto the grocery list; the
+  // pantry is deliberately NOT restored (there is no record of what was deducted), which
+  // the UI tells the user rather than leaving them to find out.
+  async unmarkMealCooked(itemId: number): Promise<void> {
+    await this.client.delete(`${API_ENDPOINTS.MEAL_PLAN_ITEMS}/${itemId}/cooked`);
   }
 
   async deleteMealPlanItem(itemId: number): Promise<void> {

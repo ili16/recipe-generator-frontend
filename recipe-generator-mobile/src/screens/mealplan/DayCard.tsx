@@ -37,6 +37,9 @@ export interface PlannedMeal {
   servings?: number | null;
   /** The saved recipe behind the meal, when the library cache has it. Absent → title only. */
   recipe?: Recipe;
+  /** Cooked and eaten: off the grocery list, already deducted from the pantry. A leftover
+   *  reads this from the cook it came from. */
+  cooked: boolean;
 }
 
 export interface PlannedDay {
@@ -67,9 +70,10 @@ interface Props {
   householdSize: number | null;
   /** Scale a cooking day to the portions it needs. */
   onScale: (meal: PlannedMeal, servings: number) => void;
+  onUncook: (meal: PlannedMeal) => void;
 }
 
-const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd, onClear, householdSize, onScale }) => {
+const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd, onClear, householdSize, onScale, onUncook }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -136,6 +140,7 @@ const DayCard: React.FC<Props> = ({ day, onCook, onSwap, onMore, onAdd, onClear,
           onClear={onClear}
           householdSize={householdSize}
           onScale={onScale}
+          onUncook={onUncook}
         />
       ))}
 
@@ -163,7 +168,8 @@ const MealRow: React.FC<{
   onClear: (meal: PlannedMeal) => void;
   householdSize: number | null;
   onScale: (meal: PlannedMeal, servings: number) => void;
-}> = ({ meal, weekday, showSlot, divided, onCook, onSwap, onMore, onClear, householdSize, onScale }) => {
+  onUncook: (meal: PlannedMeal) => void;
+}> = ({ meal, weekday, showSlot, divided, onCook, onSwap, onMore, onClear, householdSize, onScale, onUncook }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -180,7 +186,7 @@ const MealRow: React.FC<{
   const mismatch = !repeat && planned != null && needed != null && planned !== needed;
 
   return (
-    <View style={[styles.body, divided && styles.divided]}>
+    <View style={[styles.body, divided && styles.divided, meal.cooked && styles.cookedBody]}>
       {showSlot && (
         <Text variant="caption" tone="muted">
           {t(slotLabelKey(meal.slot)).toUpperCase()}
@@ -188,6 +194,13 @@ const MealRow: React.FC<{
         </Text>
       )}
       <Text variant="title" numberOfLines={2}>{meal.title}</Text>
+
+      {meal.cooked && (
+        <View style={styles.cookedRow}>
+          <Ionicons name="checkmark-circle" size={14} color={theme.accent} />
+          <Text variant="caption" tone="accent">{t('plan.cooked')}</Text>
+        </View>
+      )}
 
       {repeat && (
         <Text variant="caption" tone="accent">
@@ -248,7 +261,20 @@ const MealRow: React.FC<{
           nonsense on it: swapping the contents of the fridge, stepping up how much of it was
           cooked, asking the assistant to change a plate. One decision is left — am I eating
           this — so that is the one control (BACKLOG 9.11). */}
-      {repeat ? (
+      {meal.cooked ? (
+        <View style={styles.actions}>
+          {/* Undo puts the meal back on the plan and back on the grocery list. It does not
+              put the pantry back — WeekView says so, rather than letting the user assume. */}
+          <TouchableOpacity
+            style={styles.ghostBtn}
+            onPress={() => onUncook(meal)}
+            accessibilityRole="button"
+          >
+            <Ionicons name="arrow-undo-outline" size={14} color={theme.subtext} />
+            <Text variant="label" tone="subtle">{t('plan.undoCook')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : repeat ? (
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.ghostBtn}
@@ -315,6 +341,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
+  cookedBody: { opacity: 0.6 },
+  cookedRow: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   body: { padding: space.md, gap: space.sm },
   divided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border },
   addRow: {

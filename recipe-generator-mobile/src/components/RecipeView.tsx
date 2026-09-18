@@ -8,13 +8,8 @@ import { type } from '../theme';
 import { Badge } from './ui';
 import { RecipeDocument } from '../types';
 import { totalTimeMinutes } from '../utils/recipeTime';
+import { fmtIngredient, Ingredient } from '../utils/recipeIngredient';
 
-type Ingredient = RecipeDocument['ingredients'][number];
-
-export const fmtIngredient = (ing: Ingredient): string => {
-  const qty = ing.quantity_text ?? (ing.quantity != null ? `${ing.quantity}${ing.unit ? ' ' + ing.unit : ''}` : null);
-  return qty ? `${qty} ${ing.item}` : ing.item;
-};
 
 // Themed style object for react-native-markdown-display — the real "render actual
 // markdown" fallback used wherever there's no structured doc to display instead.
