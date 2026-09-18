@@ -25,6 +25,16 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'pantry', labelKey: 'nav.pantry', icon: 'file-tray-stacked-outline', route: 'Pantry' },
 ];
 
+// Neither of these is a tab: the bottom bar has five and a sixth would not fit a phone.
+// History lives in the top row on narrow and in the rail's footer on wide (BACKLOG 10.7)
+// — the point of that entry is that it is reachable from the shell, not only from chat.
+export const HISTORY_NAV_ITEM: NavItem = {
+  key: 'history',
+  labelKey: 'chat.history.title',
+  icon: 'time-outline',
+  route: 'History',
+};
+
 export const PROFILE_NAV_ITEM: NavItem = {
   key: 'profile',
   labelKey: 'nav.profile',

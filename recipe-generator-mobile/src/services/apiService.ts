@@ -433,6 +433,17 @@ class ApiService {
     return response.data;
   }
 
+  // Renaming and deleting a thread (BACKLOG.md 10.7). The server trims and caps the title
+  // at 80 runes and echoes back what it stored, so the list shows the stored name.
+  async renameConversation(conversationId: string, title: string): Promise<string> {
+    const response = await this.client.patch<{ title: string }>(`${API_ENDPOINTS.CONVERSATIONS}/${conversationId}`, { title });
+    return response.data.title;
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    await this.client.delete(`${API_ENDPOINTS.CONVERSATIONS}/${conversationId}`);
+  }
+
   // This month's spend against the cap (BACKLOG.md 10.5). Not budget-guarded itself — a
   // user at the cap is exactly who needs to read it.
   async getUsage(): Promise<Usage> {

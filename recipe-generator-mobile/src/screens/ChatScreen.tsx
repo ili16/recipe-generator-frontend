@@ -23,7 +23,6 @@ import { formatUSD, resetsOn } from '../utils/budget';
 import { diffRecipes, isEmptyDiff, diffSize, RecipeDiff } from '../utils/recipeDiff';
 import { describeApproval } from '../utils/chatApproval';
 import Composer from './chat/Composer';
-import ThreadList from './chat/ThreadList';
 import { useIsAuthenticated } from '../hooks/useIsAuthenticated';
 import { FeedbackPulse } from '../components/FeedbackPulse';
 
@@ -88,11 +87,7 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [expiredRefs, setExpiredRefs] = useState<string[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [hydrating, setHydrating] = useState(false);
-  // Re-rendered on open so the History row can highlight the thread being read; the ref
-  // stays the source of truth for the turn in flight.
-  const [currentId, setCurrentId] = useState<string | null>(null);
   const isAuthenticated = useIsAuthenticated();
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const conversationId = useRef<string | null>(null);
@@ -195,7 +190,6 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         patch((m) => ({ ...m, error: text }));
       }
     } finally {
-      setCurrentId(conversationId.current);
       setActiveTool(null);
       setSending(false);
       abortRef.current = null;
@@ -208,12 +202,10 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   // next turn, or the follow-up would open a second conversation.
   const openThread = useCallback(async (id: string) => {
     abortRef.current?.abort();
-    setHistoryOpen(false);
     setHydrating(true);
     try {
       const thread = await apiService.getConversation(id);
       conversationId.current = thread.id;
-      setCurrentId(thread.id);
       setExpiredRefs([]);
       setMessages(thread.messages.map((m) => ({
         role: m.role,
@@ -234,7 +226,6 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const newThread = useCallback(() => {
     abortRef.current?.abort();
     conversationId.current = null;
-    setCurrentId(null);
     setExpiredRefs([]);
     setMessages([]);
   }, []);
@@ -314,6 +305,15 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     send(handedPrompt);
   }, [handedPrompt, navigation, send]);
 
+  // A thread picked on the History screen (BACKLOG.md 10.7). Same hand-over shape as
+  // `prompt`: cleared once acted on, so going back does not re-hydrate it.
+  const handedThread = route.params?.threadId;
+  useEffect(() => {
+    if (!handedThread) return;
+    navigation.setParams({ threadId: undefined });
+    openThread(handedThread);
+  }, [handedThread, navigation, openThread]);
+
   return (
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       {/* The way back into an older conversation, and the way out of this one
@@ -323,7 +323,7 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         <View style={[styles.threadBar, isWide && styles.wide]}>
           <TouchableOpacity
             style={styles.threadBarBtn}
-            onPress={() => setHistoryOpen(true)}
+            onPress={() => navigation.navigate('History')}
             accessibilityRole="button"
             accessibilityLabel={t('chat.history.title')}
           >
@@ -343,13 +343,6 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           )}
         </View>
       )}
-
-      <ThreadList
-        visible={historyOpen}
-        currentId={currentId}
-        onClose={() => setHistoryOpen(false)}
-        onOpen={openThread}
-      />
 
       <ScrollView
         ref={scrollRef}

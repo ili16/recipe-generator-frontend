@@ -16,17 +16,20 @@ import MealPlanScreen from '../screens/MealPlanScreen';
 import GroceryListScreen from '../screens/GroceryListScreen';
 import PantryScreen from '../screens/PantryScreen';
 import HouseholdScreen from '../screens/HouseholdScreen';
+import ThreadListScreen from '../screens/chat/ThreadList';
 import { Recipe } from '../types';
 
 export type RootStackParamList = {
   Login: undefined;
-  // `prompt` is sent as a user turn on arrival (the planner hands a day or a week over
-  // to the thread); the screen clears the param so it never re-fires.
-  Chat: { prompt?: string } | undefined;
+  // `threadId` reopens an older conversation (BACKLOG.md 10.7); `prompt` is sent as a
+  // user turn on arrival (the planner hands a day or a week over to the thread). The
+  // screen clears each param so neither re-fires.
+  Chat: { prompt?: string; threadId?: string } | undefined;
   Recipes: undefined;
   Profile: undefined;
   Preferences: undefined;
   Household: undefined;
+  History: undefined;
   CookingMode: { recipe: Recipe };
   MealPlan: undefined;
   GroceryList: undefined;
@@ -89,6 +92,11 @@ const AppNavigator: React.FC = () => {
         name="Preferences"
         component={PreferencesScreen}
         options={{ title: t('nav.preferences') }}
+      />
+      <Stack.Screen
+        name="History"
+        component={ThreadListScreen}
+        options={{ title: t('chat.history.title') }}
       />
       <Stack.Screen
         name="Household"

@@ -60,13 +60,22 @@ const TabBar: React.FC<{ activeRoute: string; onNavigate: NavigateFn }> = ({ act
  * above every screen — a title the tab bar already gives, on a phone that has none to spare. All
  * that is left is the way into Profile, which narrow has no rail for.
  */
-const TopBar: React.FC<{ onPress: () => void; onReport: () => void }> = ({ onPress, onReport }) => {
+const TopBar: React.FC<{ onPress: () => void; onReport: () => void; onHistory: () => void }> = ({ onPress, onReport, onHistory }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   return (
     <View style={styles.topBar}>
+      <TouchableOpacity
+        style={styles.topBtn}
+        onPress={onHistory}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={t('chat.history.title')}
+      >
+        <Ionicons name="time-outline" size={23} color={theme.subtext} />
+      </TouchableOpacity>
       <TouchableOpacity
         style={styles.topBtn}
         onPress={onReport}
@@ -133,6 +142,7 @@ const AppShell: React.FC = () => {
           <TopBar
             onPress={() => navigationRef.isReady() && navigationRef.navigate('Profile')}
             onReport={() => setReportOpen(true)}
+            onHistory={() => navigationRef.isReady() && navigationRef.navigate('History')}
           />
         )}
 
