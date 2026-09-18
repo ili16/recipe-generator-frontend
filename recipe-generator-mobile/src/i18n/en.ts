@@ -112,8 +112,12 @@ const en = {
       approved: 'Applied',
       declined: 'Not applied — say what you would like changed',
     },
+    steps: {
+      title: { one: '%{count} step', other: '%{count} steps' },
+    },
     error: {
       budget_exceeded: "You've hit your monthly usage cap.",
+      budget_exceeded_detail: 'You have used your %{cap} of assistant time for this month. It resets on %{date}.',
       conversation_not_found: 'That conversation is gone — starting a new one.',
       timeout: 'That took too long. Try asking for something smaller.',
       iteration_limit: 'I got stuck going in circles. Try rephrasing?',
@@ -133,6 +137,9 @@ const en = {
     logout: 'Logout',
     loadFailed: 'Failed to load profile',
     logoutFailed: 'Failed to logout',
+    budget: 'Assistant usage',
+    budgetSpent: '%{spent} of %{cap} this month',
+    budgetResets: 'Resets on %{date}',
   },
 
   prefs: {

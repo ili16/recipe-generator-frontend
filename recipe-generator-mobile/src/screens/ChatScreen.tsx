@@ -19,6 +19,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { ChatApproval, ChatArtifact, ChatAttachment, ChatMessage, ChatSource, RecipeDocument } from '../types';
 import { hostLabel } from '../utils/recipeOrigin';
 import { foldArtifact } from '../utils/chatArtifacts';
+import { formatUSD, resetsOn } from '../utils/budget';
 import { diffRecipes, isEmptyDiff, diffSize, RecipeDiff } from '../utils/recipeDiff';
 import { describeApproval } from '../utils/chatApproval';
 import Composer from './chat/Composer';
@@ -63,6 +64,15 @@ const sourceFromArgs = (name: string, args: string, attachments: ChatAttachment[
   }
   if (parsed.description) return { kind: 'text', value: parsed.description };
   return null;
+};
+
+// A refused turn reports its reason as a code, and it arrives two ways: as the `error`
+// event's code mid-stream, and as the JSON body of the 429 billing.Guard returns before
+// the stream ever opens. Both end up on ApiError — one as its message, one as its data.
+const errorCode = (err: unknown): string => {
+  if (!(err instanceof ApiError)) return '';
+  const body = err.data as { error?: string; code?: string } | undefined;
+  return body?.error || body?.code || err.message;
 };
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
@@ -170,8 +180,19 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         // Stopped on purpose: keep the partial turn, mark it, and say nothing about errors.
         patch((m) => ({ ...m, stopped: true }));
       } else {
-        const code = err instanceof ApiError ? err.message : '';
-        patch((m) => ({ ...m, error: NAMED_ERRORS.has(code) ? t(`chat.error.${code}`) : t('common.unknownError') }));
+        const code = errorCode(err);
+        // The cap is real money, so the refusal names the number and the day it lifts
+        // rather than the fact that something went wrong (BACKLOG.md 10.5). The figures
+        // come from /usage — not budget-guarded, but a failure there still leaves the
+        // plain sentence rather than nothing.
+        let text = NAMED_ERRORS.has(code) ? t(`chat.error.${code}`) : t('common.unknownError');
+        if (code === 'budget_exceeded') {
+          text = await apiService.getUsage().then(
+            (u) => t('chat.error.budget_exceeded_detail', { cap: formatUSD(u.cap_usd, currentLocale()), date: resetsOn(u.period_start, currentLocale()) }),
+            () => text,
+          );
+        }
+        patch((m) => ({ ...m, error: text }));
       }
     } finally {
       setCurrentId(conversationId.current);
@@ -366,6 +387,7 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             expiredRefs={expiredRefs}
             onSaveDraft={saveDraft}
             sending={sending}
+            live={sending && i === messages.length - 1}
             onDecide={decide}
           />
         ))}
@@ -402,10 +424,12 @@ interface TurnProps {
   onSaveDraft: (draftRef: string) => void;
   /** A pending write's Apply / Change it (BACKLOG.md 10.2), disabled while a turn runs. */
   sending: boolean;
+  /** This is the turn in flight: its steps are still the spinner's job, not a summary's. */
+  live?: boolean;
   onDecide: (approval: ChatApproval, approve: boolean) => void;
 }
 
-const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, docsByRef, savingRef, expiredRefs, onSaveDraft, sending, onDecide, t }) => {
+const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, docsByRef, savingRef, expiredRefs, onSaveDraft, sending, live, onDecide, t }) => {
   if (message.role === 'user') {
     return (
       <View style={styles.userBubble}>
@@ -442,6 +466,7 @@ const Turn: React.FC<TurnProps> = ({ message, theme, styles, titles, docsByRef, 
       {message.approval && (
         <ApprovalCard approval={message.approval} styles={styles} t={t} sending={sending} onDecide={onDecide} />
       )}
+      {message.tools?.length && !live ? <Steps tools={message.tools} theme={theme} styles={styles} t={t} /> : null}
       {message.stopped && <Text style={styles.stoppedText}>{t('chat.stopped')}</Text>}
       {message.error && (
         <View style={styles.errorBox}>
@@ -602,6 +627,33 @@ const ArtifactCard: React.FC<
         </View>
       ))}
       <Text style={styles.draftTag}>{t('chat.proposalOnly')}</Text>
+    </View>
+  );
+};
+
+// What the turn actually did, kept after it ends instead of vanishing with the spinner
+// (BACKLOG.md 10.5): a turn that made six tool calls should not read like one. Collapsed,
+// because the count is the answer most of the time. Only the live stream carries tool
+// names, so a reopened thread shows none — the transcript stores results, not the calls.
+const Steps: React.FC<{ tools: string[] } & Pick<TurnProps, 'theme' | 'styles' | 't'>> = ({ tools, theme, styles, t }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.diffBox}>
+      <TouchableOpacity
+        style={styles.diffHeader}
+        onPress={() => setOpen((v) => !v)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={14} color={theme.subtext} />
+        <Text style={styles.diffTitle}>{t('chat.steps.title', { count: tools.length })}</Text>
+      </TouchableOpacity>
+      {open &&
+        tools.map((name, i) => (
+          <Text key={`${i}:${name}`} style={styles.diffLine}>
+            {`${i + 1}. ${NAMED_TOOLS.has(name) ? t(`chat.tool.${name}`) : name}`}
+          </Text>
+        ))}
     </View>
   );
 };

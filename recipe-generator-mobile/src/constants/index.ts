@@ -47,6 +47,7 @@ export const API_ENDPOINTS = {
   HOUSEHOLD: 'household',
   SHARED: 'shared',
   FEEDBACK: 'feedback',
+  USAGE: 'usage',
 } as const;
 
 // Storage Keys

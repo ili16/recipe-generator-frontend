@@ -107,8 +107,12 @@ const de: typeof en = {
       approved: 'Übernommen',
       declined: 'Nicht übernommen — sag, was anders sein soll',
     },
+    steps: {
+      title: { one: '%{count} Schritt', other: '%{count} Schritte' },
+    },
     error: {
       budget_exceeded: 'Du hast dein monatliches Nutzungslimit erreicht.',
+      budget_exceeded_detail: 'Du hast deine %{cap} Assistenz-Guthaben für diesen Monat aufgebraucht. Es wird am %{date} zurückgesetzt.',
       conversation_not_found: 'Diese Unterhaltung ist weg — wir fangen eine neue an.',
       timeout: 'Das hat zu lange gedauert. Versuch es mit etwas Kleinerem.',
       iteration_limit: 'Ich drehe mich im Kreis. Formulier es nochmal anders?',
@@ -128,6 +132,9 @@ const de: typeof en = {
     logout: 'Abmelden',
     loadFailed: 'Profil konnte nicht geladen werden',
     logoutFailed: 'Abmelden fehlgeschlagen',
+    budget: 'Assistenz-Nutzung',
+    budgetSpent: '%{spent} von %{cap} diesen Monat',
+    budgetResets: 'Wird am %{date} zurückgesetzt',
   },
 
   prefs: {

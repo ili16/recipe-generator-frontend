@@ -9,7 +9,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import apiService from '../services/apiService';
 import authService from '../services/authService';
-import { UserProfile } from '../types';
+import { UserProfile, Usage } from '../types';
 import Loading from '../components/Loading';
 import { useTheme, Theme, ThemeMode } from '../context/ThemeContext';
 import { type } from '../theme';
@@ -17,13 +17,18 @@ import { useEscapeBack } from '../hooks/useEscapeBack';
 import { Chip } from '../components/ui';
 import { useAlert } from '../context/AlertContext';
 import { useLanguage, LanguageMode } from '../context/LanguageContext';
+import { formatUSD, resetsOn } from '../utils/budget';
+import { currentLocale } from '../i18n';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
+
+
 
 const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [usage, setUsage] = useState<Usage | null>(null);
   const { theme, mode, setMode } = useTheme();
   const { t, mode: langMode, setMode: setLangMode } = useLanguage();
   const { showAlert } = useAlert();
@@ -76,6 +81,10 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       if (authenticated) {
         const userProfile = await authService.getUserProfile();
         setProfile(userProfile);
+        // There is a monthly cap that can refuse a turn, and until now the only way to
+        // learn it existed was to hit it (BACKLOG.md 10.5). Not awaited into the failure
+        // path: a profile that loads without the number is better than one that errors.
+        apiService.getUsage().then(setUsage, () => setUsage(null));
       }
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -92,6 +101,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       apiService.cachedPreferences = null;
       setIsAuthenticated(false);
       setProfile(null);
+      setUsage(null);
       navigation.navigate('Chat');
     } catch (error) {
       console.error('Logout error:', error);
@@ -140,6 +150,16 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.value}>{profile.email}</Text>
           </View>
         ) : null}
+
+        {usage && (
+          <View style={styles.field}>
+            <Text style={styles.label}>{t('profile.budget')}</Text>
+            <Text style={styles.value}>
+              {t('profile.budgetSpent', { spent: formatUSD(usage.spent_usd, currentLocale()), cap: formatUSD(usage.cap_usd, currentLocale()) })}
+            </Text>
+            <Text style={styles.muted}>{t('profile.budgetResets', { date: resetsOn(usage.period_start, currentLocale()) })}</Text>
+          </View>
+        )}
 
         {appearance}
         {language}

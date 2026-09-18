@@ -422,3 +422,14 @@ export interface FeedbackPayload {
    */
   screenshot?: string;
 }
+
+// This month's LLM spend against the cap that stops a turn (BACKLOG.md 10.5). The cap is
+// real money the user never agreed to, so it is stated in Profile rather than only
+// appearing as a refusal. `period_start` is the first of the current month; the cap resets
+// a month after it.
+export interface Usage {
+  spent_usd: number;
+  cap_usd: number;
+  period_start: string;
+  pct_used: number;
+}

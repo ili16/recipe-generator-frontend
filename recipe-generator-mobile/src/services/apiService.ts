@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload, Household, CookedResult, ConversationSummary, ConversationThread } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload, Household, CookedResult, ConversationSummary, ConversationThread, Usage } from '../types';
 import authService from './authService';
 import { currentLocale } from '../i18n';
 
@@ -90,7 +90,15 @@ class ApiService {
       if (refreshed) response = await send(refreshed);
     }
     if (!response.ok || !response.body) {
-      throw new ApiError(`stream failed: ${response.status}`, response.status);
+      // The refusal a caller acts on is in the body, not the status: billing.Guard turns a
+      // user away with 429 {"error":"budget_exceeded"} *before* the stream opens, so
+      // dropping the body here is what made hitting the cap look like a generic failure
+      // (BACKLOG.md 10.5).
+      const code = await response.json().then(
+        (b: { error?: string; code?: string }) => b?.error || b?.code,
+        () => undefined,
+      );
+      throw new ApiError(code || `stream failed: ${response.status}`, response.status);
     }
 
     const reader = response.body.getReader();
@@ -422,6 +430,13 @@ class ApiService {
 
   async getConversation(conversationId: string): Promise<ConversationThread> {
     const response = await this.client.get<ConversationThread>(`${API_ENDPOINTS.CONVERSATIONS}/${conversationId}`);
+    return response.data;
+  }
+
+  // This month's spend against the cap (BACKLOG.md 10.5). Not budget-guarded itself — a
+  // user at the cap is exactly who needs to read it.
+  async getUsage(): Promise<Usage> {
+    const response = await this.client.get<Usage>(API_ENDPOINTS.USAGE);
     return response.data;
   }
 
