@@ -25,7 +25,7 @@ const hasPendingWebOAuthCallback =
 
 function Root() {
   const { isDark } = useTheme();
-  const { t } = useLanguage();
+  const { t, hydrateFromAccount } = useLanguage();
   const [authReady, setAuthReady] = useState(!hasPendingWebOAuthCallback);
   // Gate the first render on the brand fonts so nothing flashes in the system face and reflows
   // (BACKLOG 5.6). `error` counts as ready: a failed font download degrades to system fonts, it
@@ -35,8 +35,13 @@ function Root() {
   useEffect(() => {
     if (!authReady) {
       authService.completeWebLoginIfNeeded().finally(() => setAuthReady(true));
+      return;
     }
-  }, [authReady]);
+    // The account's language, once there is a session to ask (BACKLOG 14.1). Here rather than
+    // in the provider because this is the only place that knows a pending web login has
+    // finished — and a provider that fetched on mount would ask mid-redirect and get a 401.
+    hydrateFromAccount();
+  }, [authReady, hydrateFromAccount]);
 
   if (!fontsLoaded && !fontError) {
     return <Loading visible />;

@@ -182,6 +182,9 @@ export interface UserPreferences {
   // never said, which is not 1: with no number there is nothing to compare a recipe's
   // yield against, so the planner claims no mismatch.
   household_size: number | null;
+  // The UI language the user picked, or null when they never picked one — which is not
+  // English: the client follows the device locale instead (BACKLOG 14.1).
+  language: 'en' | 'de' | null;
 }
 
 export type GenerateMethod = 'description' | 'link' | 'image' | 'voice';

@@ -20,7 +20,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const { theme } = useTheme();
-  const { t } = useLanguage();
+  const { t, hydrateFromAccount } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const handleLogin = async (mode: AuthMode) => {
@@ -33,6 +33,9 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
       if (profile) {
+        // Native only — web reloads through App's own hydration. Their account may read in a
+        // different language than this device does (BACKLOG 14.1).
+        hydrateFromAccount();
         Alert.alert(t('login.welcome'), t('login.loggedInAs', { name: profile.name }));
         navigation.goBack();
       } else {
