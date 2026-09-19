@@ -101,6 +101,7 @@ const de: typeof en = {
       clear_plan_day: 'Leert diesen Tag',
       get_preferences: 'Liest deine Einstellungen',
       set_preferences: 'Aktualisiert deine Einstellungen',
+      note_preference: 'Merkt sich das',
       fetch_url: 'Liest die Seite',
       answer_cooking_question: 'Denkt nach',
     },

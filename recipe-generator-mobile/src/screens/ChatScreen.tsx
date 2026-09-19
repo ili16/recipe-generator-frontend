@@ -34,7 +34,7 @@ import { FeedbackPulse } from '../components/FeedbackPulse';
 // catalog and falls back to its own name — readable, rather than nothing.
 const NAMED_TOOLS = new Set([
   'generate_recipe', 'transform_recipe', 'search_my_recipes', 'get_recipe', 'save_recipe',
-  'plan_week', 'set_plan_day', 'clear_plan_day', 'get_preferences', 'set_preferences',
+  'plan_week', 'set_plan_day', 'clear_plan_day', 'get_preferences', 'set_preferences', 'note_preference',
   'fetch_url', 'answer_cooking_question',
 ]);
 

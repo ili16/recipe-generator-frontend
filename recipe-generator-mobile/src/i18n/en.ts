@@ -106,6 +106,7 @@ const en = {
       clear_plan_day: 'Clearing that day',
       get_preferences: 'Reading your preferences',
       set_preferences: 'Updating your preferences',
+      note_preference: 'Noting that down',
       fetch_url: 'Reading the page',
       answer_cooking_question: 'Thinking it through',
     },
