@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView, TextInput } from 'react-native';
+import { View, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Clipboard from 'expo-clipboard';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import apiService from '../services/apiService';
 import authService from '../services/authService';
-import { Household } from '../types';
-import { Text, Button, Card, Badge, Screen, SignInRequired } from '../components/ui';
+import { Household, HouseholdMember } from '../types';
+import { Text, Button, Card, Badge, Screen, SignInRequired, Chip } from '../components/ui';
+import { tagLabelKey } from '../constants/tags';
 import Loading from '../components/Loading';
 import { useTheme, Theme } from '../context/ThemeContext';
 import { space, radius } from '../theme';
@@ -108,6 +110,51 @@ const HouseholdScreen: React.FC<Props> = ({ navigation }) => {
     run(async () => { await apiService.leaveHousehold(); return null; }, t('household.leaveFailed'));
   };
 
+  // The household's food file (BACKLOG 15.6). The backend already unions every member's
+  // dietary_prefs and disliked_ingredients into what the agent plans against; this renders
+  // that union with the name it came from, which is the only thing that makes a constraint
+  // nobody recognises traceable rather than spooky.
+  //
+  // Removal is your own lines only, through the preferences endpoint that already owns
+  // them — somebody else's dislike is theirs to drop, and an edit war over who may eat
+  // what is not a feature.
+  const removePref = async (field: 'dietary_prefs' | 'disliked_ingredients', value: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      // PATCH /preferences overwrites the whole object, so the removal rides on the full
+      // current settings rather than the one field.
+      const prefs = apiService.cachedPreferences ?? await apiService.getPreferences();
+      const next = await apiService.updatePreferences({
+        ...prefs, [field]: prefs[field].filter(v => v !== value),
+      });
+      setHousehold(h => h && {
+        ...h,
+        members: h.members.map(m => m.is_me
+          ? { ...m, dietary_prefs: next.dietary_prefs, disliked_ingredients: next.disliked_ingredients }
+          : m),
+      });
+    } catch (err) {
+      console.error('Error removing preference:', err);
+      showAlert(t('common.error'), t('household.prefRemoveFailed'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const prefChip = (m: HouseholdMember, field: 'dietary_prefs' | 'disliked_ingredients', value: string, label: string) => (
+    <Chip
+      key={`${field}:${value}`}
+      label={label}
+      selected
+      trailing={m.is_me ? (
+        <TouchableOpacity onPress={() => removePref(field, value)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+          <Ionicons name="close" size={12} color={theme.accent} />
+        </TouchableOpacity>
+      ) : undefined}
+    />
+  );
+
   const disband = async () => {
     if (!(await confirmAction(t('household.disbandTitle'), t('household.disbandBody'),
       { confirmLabel: t('household.disband'), destructive: true }))) return;
@@ -170,10 +217,21 @@ const HouseholdScreen: React.FC<Props> = ({ navigation }) => {
 
         <Card style={styles.section}>
           <Text variant="label" tone="subtle">{t('household.members')}</Text>
+          <Text tone="subtle">{t('household.foodFileExplainer')}</Text>
           {household.members.map(m => (
-            <View key={m.id} style={styles.memberRow}>
-              <Text>{m.name || m.email || t('household.unnamedMember')}</Text>
-              {m.is_me ? <Badge label={t('household.you')} /> : null}
+            <View key={m.id} style={styles.member}>
+              <View style={styles.memberRow}>
+                <Text>{m.name || m.email || t('household.unnamedMember')}</Text>
+                {m.is_me ? <Badge label={t('household.you')} /> : null}
+              </View>
+              {m.dietary_prefs.length + m.disliked_ingredients.length === 0 ? (
+                <Text tone="subtle">{t('household.noPrefs')}</Text>
+              ) : (
+                <View style={styles.chipRow}>
+                  {m.dietary_prefs.map(slug => prefChip(m, 'dietary_prefs', slug, t(tagLabelKey(slug))))}
+                  {m.disliked_ingredients.map(item => prefChip(m, 'disliked_ingredients', item, t('household.without', { item })))}
+                </View>
+              )}
             </View>
           ))}
         </Card>
@@ -209,7 +267,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   // set as prose.
   code: { letterSpacing: 2, textTransform: 'uppercase' },
   codeValue: { letterSpacing: 4 },
+  member: { gap: space.xs },
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
   actionRow: { flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' },
 });
 

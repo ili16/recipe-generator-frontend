@@ -450,6 +450,13 @@ const en = {
     members: 'Members',
     you: 'You',
     unnamedMember: 'Someone',
+    // The household's food file (BACKLOG 15.6): what the agent plans around, with a name
+    // on every line. Only your own lines can be removed — somebody else's dislike is
+    // theirs to drop.
+    foodFileExplainer: 'The agent plans around all of this at once. Remove your own lines here; everything else is its owner\'s to change.',
+    noPrefs: 'Nothing noted yet',
+    without: 'no %{item}',
+    prefRemoveFailed: 'Could not remove that.',
     joinCode: 'Join code',
     joinCodeExplainer: 'Anyone with this code can join. Change it if it has gone somewhere it should not have.',
     copyCode: 'Copy code',

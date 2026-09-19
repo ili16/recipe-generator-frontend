@@ -247,12 +247,17 @@ export interface Household {
   members: HouseholdMember[];
 }
 
-// There are no roles and no admin, so a member is only ever who they are.
+// There are no roles and no admin, so a member is only ever who they are — plus the two
+// preferences the agent asserts about the whole table rather than about them (BACKLOG 15.6).
+// The backend unions these into what it plans against; per member is how the screen can put
+// a name on every line of that union.
 export interface HouseholdMember {
   id: number;
   name: string;
   email: string;
   is_me: boolean;
+  dietary_prefs: string[];
+  disliked_ingredients: string[];
 }
 
 // One thing the user has in the house (GET /pantry). `name` and `unit` come back
