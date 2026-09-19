@@ -229,6 +229,8 @@ const de: typeof en = {
     manuallyEdited: 'Manuell bearbeitet',
     refineWithAi: 'Mit KI verfeinern',
     createVariant: 'Variante erstellen',
+    makeMyCopy: 'Eigene Kopie erstellen',
+    byOwner: '%{name} (von %{owner})',
     collections: 'Sammlungen',
     history: 'Verlauf',
     cook: 'Kochen',

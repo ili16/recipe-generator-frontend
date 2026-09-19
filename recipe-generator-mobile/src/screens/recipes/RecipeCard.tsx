@@ -297,7 +297,9 @@ const RecipeCard: React.FC<Props> = ({
                   }}
                 >
                   <Ionicons name="copy-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
-                  <Text style={s.cookButtonText}>{t('recipes.createVariant')}</Text>
+                  {/* On somebody else's recipe this button *is* the way out of read-only
+                      (15.7), so it says so rather than naming the mechanism. */}
+                  <Text style={s.cookButtonText}>{t(mine ? 'recipes.createVariant' : 'recipes.makeMyCopy')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={s.cookButton}

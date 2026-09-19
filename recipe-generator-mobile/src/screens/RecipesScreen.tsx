@@ -54,9 +54,13 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
 
   const recipeNameById = useMemo(() => {
     const map = new Map<number, string>();
-    lib.recipes.forEach(r => map.set(r.id, r.recipename));
+    // A fork of a household member's recipe says whose it was — the parent name alone
+    // reads as if it were yours (15.7).
+    lib.recipes.forEach(r => map.set(r.id, r.owned_by_me === false
+      ? t('recipes.byOwner', { name: r.recipename, owner: r.owner_name || t('household.unnamedMember') })
+      : r.recipename));
     return map;
-  }, [lib.recipes]);
+  }, [lib.recipes, t]);
 
   // How many saved variants each parent recipe has — the list already carries every
   // variant's parent link, so this is a tally, not a query (BACKLOG 6.5).

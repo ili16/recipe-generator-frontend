@@ -234,6 +234,8 @@ const en = {
     manuallyEdited: 'Manually edited',
     refineWithAi: 'Refine with AI',
     createVariant: 'Create Variant',
+    makeMyCopy: 'Make my own copy',
+    byOwner: "%{name} (%{owner}'s)",
     collections: 'Collections',
     history: 'History',
     cook: 'Cook',
