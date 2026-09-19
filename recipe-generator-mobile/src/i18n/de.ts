@@ -94,6 +94,7 @@ const de: typeof en = {
       generate_recipe: 'Schreibt ein Rezept',
       transform_recipe: 'Passt das Rezept an',
       search_my_recipes: 'Durchsucht deine Rezepte',
+      meal_history: 'Schaut, was du schon gegessen hast',
       get_recipe: 'Öffnet ein Rezept',
       save_recipe: 'Speichert in deinem Konto',
       plan_week: 'Plant die Woche',

@@ -99,6 +99,7 @@ const en = {
       generate_recipe: 'Writing a recipe',
       transform_recipe: 'Adjusting the recipe',
       search_my_recipes: 'Searching your recipes',
+      meal_history: 'Checking what you have eaten',
       get_recipe: 'Opening a recipe',
       save_recipe: 'Saving to your account',
       plan_week: 'Planning the week',
