@@ -1,14 +1,14 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme, useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
-import { type } from '../theme';
+import { type, space, radius } from '../theme';
 import { Badge } from './ui';
 import { RecipeDocument } from '../types';
 import { totalTimeMinutes } from '../utils/recipeTime';
-import { fmtIngredient, Ingredient } from '../utils/recipeIngredient';
+import { fmtIngredient, scaleIngredient, servingScale, Ingredient } from '../utils/recipeIngredient';
 
 
 // Themed style object for react-native-markdown-display — the real "render actual
@@ -36,12 +36,38 @@ interface Props {
   // Cooking mode's overview walks the steps one screen at a time, so it renders the
   // ingredients here and leaves the steps to StepPhase.
   showSteps?: boolean;
+  // How many people the cook wants to feed (BACKLOG 17.3). Nothing is written: this
+  // multiplies what is displayed and the saved recipe never moves, which also keeps the
+  // meal plan's own scaling — which scales from the STORED yield — honest.
+  //
+  // Optional and controlled-if-given. Cooking mode passes the session's value so the
+  // overview and the step cards cannot disagree; everywhere else RecipeView holds it and
+  // it resets when the screen closes, which is the intent of a view-only scaler.
+  servings?: number | null;
+  onServingsChange?: (servings: number) => void;
+  // Opt-in, because a stepper is wrong on two of the five screens that render a recipe:
+  // RefinedPhase is reviewing what the AI just changed, and the chat artifact card is a
+  // draft. A scaler there invites "did it scale, or did the model rewrite the amounts?"
+  // -- a question this component should never make a reader ask.
+  scalable?: boolean;
 }
 
-const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true }) => {
+const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true, servings, onServingsChange, scalable = false }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
+
+  // Hold the number, derive the lines — never the other way round (the 9.8 rule). The
+  // scaled ingredients are recomputed on every render from one scalar.
+  const [ownServings, setOwnServings] = useState<number | null>(null);
+  const baseServings = structured?.servings ?? null;
+  const wanted = servings ?? ownServings ?? baseServings;
+  const setWanted = (n: number) => {
+    if (n < 1) return; // cooking for nobody is not a thing you can step to
+    setOwnServings(n);
+    onServingsChange?.(n);
+  };
+  const scale = scalable ? servingScale(wanted, baseServings) : 1;
 
   const hasContent = structured && (structured.ingredients.length > 0 || structured.steps.length > 0);
   if (!hasContent) {
@@ -102,6 +128,39 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true })
         </View>
       )}
 
+      {/* The scaler sits above the ingredients because that is the only thing it moves.
+          Hidden when the recipe never said what it yields -- there is nothing to scale
+          from, and a stepper starting at a guess would silently invent amounts. */}
+      {scalable && structured!.ingredients.length > 0 && baseServings != null && (
+        <View style={styles.section}>
+          <View style={styles.servingsRow}>
+            <Text style={styles.sectionLabel}>{t('recipeView.cookingFor')}</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity
+                style={styles.stepperBtn}
+                onPress={() => setWanted((wanted ?? baseServings) - 1)}
+                accessibilityRole="button"
+                accessibilityLabel={t('recipeView.oneFewerServing')}
+              >
+                <Ionicons name="remove" size={16} color={theme.accent} />
+              </TouchableOpacity>
+              <Text style={styles.servingsValue}>{wanted}</Text>
+              <TouchableOpacity
+                style={styles.stepperBtn}
+                onPress={() => setWanted((wanted ?? baseServings) + 1)}
+                accessibilityRole="button"
+                accessibilityLabel={t('recipeView.oneMoreServing')}
+              >
+                <Ionicons name="add" size={16} color={theme.accent} />
+              </TouchableOpacity>
+            </View>
+          </View>
+          {scale !== 1 && (
+            <Text style={styles.scaledNote}>{t('recipeView.scaledNote', { base: baseServings })}</Text>
+          )}
+        </View>
+      )}
+
       {structured!.ingredients.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>{t('edit.ingredients')}</Text>
@@ -112,7 +171,7 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true })
                 <View key={idx} style={styles.ingRow}>
                   <View style={styles.ingBullet} />
                   <Text style={styles.ingText}>
-                    {fmtIngredient(ing)}
+                    {fmtIngredient(scaleIngredient(ing, scale), scale !== 1)}
                     {ing.optional ? <Text style={styles.optLabel}>  optional</Text> : null}
                   </Text>
                 </View>
@@ -168,6 +227,14 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   subsectionLabel: { ...type.label, fontSize: 12, lineHeight: 16, color: t.accent, marginTop: 8, marginBottom: 4 },
 
   ingRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6, gap: 8 },
+  servingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  servingsValue: { ...type.title, fontSize: 17, lineHeight: 24, color: t.text, minWidth: 24, textAlign: 'center' },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  stepperBtn: { padding: space.sm, borderRadius: radius.full, borderWidth: 1, borderColor: t.border },
+  // Says plainly what the multiplier did NOT touch. Scaling seasoning, cook times and pan
+  // sizes linearly is wrong, and a 4x recipe that silently quadrupled the chili is worse
+  // than one that admits it only moved the amounts.
+  scaledNote: { ...type.caption, color: t.muted, marginTop: 8 },
   ingBullet: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: t.accent, marginTop: 7 },
   ingText: { flex: 1, ...type.body, fontSize: 14, color: t.text, lineHeight: 20 },
   optLabel: { ...type.caption, color: t.muted, fontStyle: 'italic' },

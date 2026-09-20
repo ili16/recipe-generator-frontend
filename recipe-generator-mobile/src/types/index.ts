@@ -89,6 +89,11 @@ export interface RecipeDocument {
     // Shopping aisle, emitted by the generation call for the grocery list (BACKLOG
     // 6.1). Absent on anything generated before it.
     category?: GroceryCategory | null;
+    // How much one of this line's own unit weighs, read from ingredient_grams on the
+    // way out (BACKLOG 17.3). Never stored on the recipe; it exists so the servings
+    // scaler can turn "1.5 onions" into something a cook can act on. Absent means
+    // nothing knows, and the scaler must then show the bare number.
+    grams_per_unit?: number | null;
   }>;
   steps: Array<{
     sort_order: number;

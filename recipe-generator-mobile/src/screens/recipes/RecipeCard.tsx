@@ -243,7 +243,7 @@ const RecipeCard: React.FC<Props> = ({
               )}
 
               <ScrollView style={styles.recipeContentScroll} nestedScrollEnabled>
-                <RecipeView structured={recipe.structured} markdown={recipe.recipe} />
+                <RecipeView structured={recipe.structured} markdown={recipe.recipe} scalable />
               </ScrollView>
 
               {panel === 'refine' && <RefinePanel loading={refineLoading} onApply={runRefine} />}

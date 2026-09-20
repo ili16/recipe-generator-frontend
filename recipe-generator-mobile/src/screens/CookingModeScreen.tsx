@@ -8,6 +8,7 @@ import { useCookingSession } from '../hooks/useCookingSession';
 import { makeChromeStyles } from './cooking/styles';
 import OverviewPhase from './cooking/OverviewPhase';
 import StepPhase from './cooking/StepPhase';
+import { servingScale } from '../utils/recipeIngredient';
 import DonePhase from './cooking/DonePhase';
 import RefinedPhase from './cooking/RefinedPhase';
 
@@ -71,6 +72,8 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
         structured={s.structured}
         groups={s.groups}
         onPlanFlow={s.planFlow}
+        servings={s.servings}
+        onServingsChange={s.setServings}
         onClose={() => navigation.goBack()}
         onStart={() => {
           s.setCurrentGroup(0);
@@ -85,6 +88,7 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
       recipe={s.recipe}
       groups={s.groups}
       ingredients={s.ingredients}
+      scale={servingScale(s.servings, s.structured?.servings)}
       currentGroup={s.currentGroup}
       noteIndex={s.noteIndex}
       notes={s.notes}

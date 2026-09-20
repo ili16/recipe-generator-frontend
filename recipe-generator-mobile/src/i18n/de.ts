@@ -600,6 +600,10 @@ const de: typeof en = {
 
   recipeView: {
     perServing: 'Pro Portion · geschätzt',
+    cookingFor: 'Kochen für',
+    oneFewerServing: 'Eine Portion weniger',
+    oneMoreServing: 'Eine Portion mehr',
+    scaledNote: 'Mengen umgerechnet von %{base} Portionen. Gewürze, Garzeiten und Topfgrößen nicht — zwischendurch abschmecken.',
   },
 
   tags: {

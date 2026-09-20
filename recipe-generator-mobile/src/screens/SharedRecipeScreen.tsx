@@ -37,7 +37,7 @@ const SharedRecipeScreen: React.FC<{ token: string }> = ({ token }) => {
   return (
     <ScrollView style={{ backgroundColor: theme.bg }} contentContainerStyle={styles.content}>
       <UIText variant="title">{recipe.recipename}</UIText>
-      <RecipeView structured={recipe.structured} markdown={recipe.recipe} />
+      <RecipeView structured={recipe.structured} markdown={recipe.recipe} scalable />
       <UIText variant="caption" tone="muted" style={styles.sub}>
         Shared from Recipe Generator
       </UIText>

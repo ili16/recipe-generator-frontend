@@ -7,7 +7,7 @@ import { Recipe } from '../../types';
 import { useTheme, Theme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { type } from '../../theme';
-import { fmtIngredient } from '../../utils/recipeIngredient';
+import { fmtIngredient, scaleIngredient } from '../../utils/recipeIngredient';
 import { Badge } from '../../components/ui';
 import {
   Ingredient, phaseLabelKey, StepGroup, formatTimer, getStepIngredients, groupSpokenText,
@@ -20,6 +20,8 @@ interface Props {
   recipe: Recipe;
   groups: StepGroup[];
   ingredients: Ingredient[];
+  /** Servings multiplier from the overview's scaler, 1 when the cook left it alone. */
+  scale: number;
   currentGroup: number;
   /** Original step index this card's notes are keyed on. */
   noteIndex: number;
@@ -34,7 +36,7 @@ interface Props {
 // One card of cooking at a time — a single step, or the several a cook does at once —
 // with the two panels that hang off it: a note the user takes, and a question to the AI.
 const StepPhase: React.FC<Props> = ({
-  recipe, groups, ingredients, currentGroup, noteIndex, notes,
+  recipe, groups, ingredients, scale, currentGroup, noteIndex, notes,
   onSaveNote, onClose, onPrev, onNext, onAsk,
 }) => {
   const { theme } = useTheme();
@@ -155,7 +157,7 @@ const StepPhase: React.FC<Props> = ({
                           <Badge
                             key={j}
                             tone="neutral"
-                            label={`${fmtIngredient(ing)}${ing.optional ? ` ${t('cooking.optional')}` : ''}`}
+                            label={`${fmtIngredient(scaleIngredient(ing, scale), scale !== 1)}${ing.optional ? ` ${t('cooking.optional')}` : ''}`}
                           />
                         ))}
                       </View>

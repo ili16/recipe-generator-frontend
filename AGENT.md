@@ -65,6 +65,13 @@ src/
 │   ├── PreferencesPanel.tsx    — the prefs editor. One caller (PreferencesScreen): preferences
 │   │                             live in Profile only since BACKLOG 4.1
 │   ├── RecipeView.tsx          — THE structured-recipe renderer + recipeMarkdownStyles, and
+│   │                             since 17.3 the servings stepper, behind an opt-in
+│   │                             `scalable` prop: on the library card, the shared recipe
+│   │                             and cooking mode, deliberately NOT on RefinedPhase or the
+│   │                             chat artifact card, where a stepper beside an AI's edits
+│   │                             invites "did it scale, or did the model rewrite this?".
+│   │                             Cooking mode owns the number (useCookingSession) so the
+│   │                             overview and the step cards cannot disagree,
 │   │                             since BACKLOG 5.4 the only one: RecipeCard, ChatScreen's
 │   │                             artifact card, OverviewPhase (showSteps={false}) and
 │   │                             RefinedPhase all go through it. Never render a recipe
@@ -208,7 +215,12 @@ src/
     │                             collapsed, off the artifact's `derived_from`
     ├── recipeIngredient.ts     — fmtIngredient(): one ingredient as "250 g flour". Moved out
     │                             of components/RecipeView by 10.3 so non-rendering code and
-    │                             its plain-node check script can use it
+    │                             its plain-node check script can use it. 17.3 added
+    │                             scaleIngredient() + servingScale() — quantity scales,
+    │                             quantity_text NEVER does ("a pinch" is not 1.5 pinches) —
+    │                             and an opt-in gram hint, off by default because the version
+    │                             diff renders through the same function
+    │                             (recipeIngredient.check.ts is its assert script)
     ├── chatApproval.ts         — describeApproval(): what a pending write does, read off the
     │                             gated tool call's own args (10.2). Picks a catalog key rather
     │                             than writing a sentence — the summary has to exist in every

@@ -19,6 +19,11 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [refinedRecipe, setRefinedRecipe] = useState<RecipeResponse | null>(null);
   const [saving, setSaving] = useState(false);
+  // How many the cook is cooking for (BACKLOG 17.3). It lives in the session, not in
+  // RecipeView, because the overview and the step cards must not disagree -- the
+  // overview's RecipeView unmounts the moment cooking starts, and a number held there
+  // would reset behind the cook's back. Nothing is written; this scales what is shown.
+  const [servings, setServings] = useState<number | null>(null);
 
   useEffect(() => {
     if (initialRecipe.structured) return;
@@ -192,6 +197,7 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
 
   return {
     recipe, structured, steps, ingredients, groups, group,
+    servings, setServings,
     phase, setPhase, currentGroup, setCurrentGroup, noteIndex, refineOrigin,
     notes, setNote, next, prev,
     ask, refine, planFlow, refinedRecipe, saveRefined, saving,

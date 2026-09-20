@@ -612,6 +612,10 @@ const en = {
 
   recipeView: {
     perServing: 'Per serving · estimated',
+    cookingFor: 'Cooking for',
+    oneFewerServing: 'One fewer serving',
+    oneMoreServing: 'One more serving',
+    scaledNote: 'Amounts scaled from %{base} servings. Seasoning, cooking times and pan sizes are not — taste as you go.',
   },
 
   tags: {

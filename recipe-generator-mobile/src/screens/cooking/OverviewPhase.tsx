@@ -15,9 +15,12 @@ interface Props {
   onPlanFlow: () => void;
   onClose: () => void;
   onStart: () => void;
+  // The session owns the scaler so the step cards agree with this list (BACKLOG 17.3).
+  servings?: number | null;
+  onServingsChange?: (servings: number) => void;
 }
 
-const OverviewPhase: React.FC<Props> = ({ recipe, structured, groups, onPlanFlow, onClose, onStart }) => {
+const OverviewPhase: React.FC<Props> = ({ recipe, structured, groups, onPlanFlow, onClose, onStart, servings, onServingsChange }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const c = useMemo(() => makeChromeStyles(theme), [theme]);
@@ -37,7 +40,14 @@ const OverviewPhase: React.FC<Props> = ({ recipe, structured, groups, onPlanFlow
       </View>
 
       <ScrollView style={c.scrollView} contentContainerStyle={c.scrollContent}>
-        <RecipeView structured={structured} markdown={recipe.recipe} showSteps={false} />
+        <RecipeView
+          structured={structured}
+          markdown={recipe.recipe}
+          showSteps={false}
+          scalable
+          servings={servings}
+          onServingsChange={onServingsChange}
+        />
 
         {groups.length > 0 && (
           phases.length > 0 ? (
