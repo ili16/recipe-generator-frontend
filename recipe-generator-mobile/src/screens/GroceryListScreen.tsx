@@ -1,13 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import apiService from '../services/apiService';
-import authService from '../services/authService';
-import { GroceryCategory, GroceryLine, PantryCategory } from '../types';
-import { groceryCheckedKey } from '../constants';
+import { GroceryCategory, GroceryLine, GroceryTick, PantryCategory } from '../types';
 import { useTheme, Theme } from '../context/ThemeContext';
 import { space, radius } from '../theme';
 import { Text, SignInRequired } from '../components/ui';
@@ -59,23 +56,32 @@ const pantryCovers = (line: GroceryLine): string | null =>
     ? formatQuantity(line.need - line.quantity, line.unit)
     : null;
 
+// How often a focused list re-reads the household's ticks. Two people in one shop are the
+// case this exists for, and neither of them is watching the screen between aisles — ten
+// seconds is under the time it takes to walk to the next one.
+//
+// ponytail: polling, not push. It is one request per member per ten seconds while the
+// screen is open and nowhere else in the app; swap it for SSE off the chat stream's
+// machinery if shopping sessions ever get long enough for that to show up in the bill.
+const TICK_POLL_MS = 10_000;
+
 /**
  * The week's shopping list (BACKLOG 6.1). Derived, never stored: every load re-aggregates the
- * plan as it stands, so dropping a meal drops its lines. Which lines are ticked off is kept per
- * user and per week in AsyncStorage — a tick is about this shopping trip on this device, not an
- * account-level fact — but the tick itself has one durable effect: it adds the line to the
- * pantry, and unticking removes it again (BACKLOG 7.2).
+ * plan as it stands, so dropping a meal drops its lines. Which lines are ticked off lives on
+ * the server, scoped to the household (BACKLOG 15.9) — two people splitting one shop have to
+ * see each other's ticks or one of them buys the milk twice — and a tick has one durable
+ * effect besides: it adds the line to the pantry, and unticking removes it again (BACKLOG 7.2).
  */
 const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
   const authed = useIsAuthenticated();
   const prefs = usePreferences();
   const [lines, setLines] = useState<GroceryLine[] | null>(null);
   const [error, setError] = useState(false);
-  // Value is the pantry item the tick created (BACKLOG 7.2), so unticking knows what to
-  // remove again. `true` is the legacy shape from before 7.2 and from a failed write: still
-  // ticked, just with no pantry row behind it.
-  const [checked, setChecked] = useState<Record<string, number | true>>({});
-  const [userId, setUserId] = useState<string | null>(null);
+  // The household's ticks, keyed by line. Server state, mirrored here — the only local
+  // edits are the optimistic ones in `toggle`, and `pending` protects those from being
+  // stamped back over by a poll that was already in flight when the user tapped.
+  const [checked, setChecked] = useState<Record<string, GroceryTick>>({});
+  const pending = useRef(new Set<string>());
   const [anchor, setAnchor] = useState(() => new Date());
   const { theme } = useTheme();
   const { t } = useLanguage();
@@ -84,10 +90,6 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
 
   const weekStartISO = toISODate(startOfWeek(anchor, prefs?.week_start_day ?? 'monday'));
   const weekEndISO = toISODate(addDays(startOfWeek(anchor, prefs?.week_start_day ?? 'monday'), 6));
-
-  useEffect(() => {
-    authService.getUserId().then(setUserId).catch(() => {});
-  }, []);
 
   const load = useCallback(() => {
     if (!authed) return;
@@ -102,52 +104,84 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
   useEffect(load, [load]);
   useEffect(() => navigation.addListener('focus', load), [navigation, load]);
 
-  useEffect(() => {
-    if (!userId) return;
-    AsyncStorage.getItem(groceryCheckedKey(userId, weekStartISO))
-      .then(raw => setChecked(raw ? JSON.parse(raw) : {}))
-      .catch(() => setChecked({}));
-  }, [userId, weekStartISO]);
+  // A poll never contradicts a tap the user has just made and the server has not answered
+  // yet: those keys are left exactly as the optimistic update set them.
+  const refreshTicks = useCallback(() => {
+    if (!authed) return;
+    apiService.getGroceryTicks(weekStartISO)
+      .then(ticks => setChecked(prev => {
+        const next: Record<string, GroceryTick> = {};
+        for (const tick of ticks) next[tick.line_key] = tick;
+        for (const key of pending.current) {
+          if (prev[key]) next[key] = prev[key]; else delete next[key];
+        }
+        return next;
+      }))
+      .catch(err => console.error('Error loading grocery ticks:', err));
+  }, [authed, weekStartISO]);
 
-  const persistChecked = useCallback((next: Record<string, number | true>) => {
-    if (userId) AsyncStorage.setItem(groceryCheckedKey(userId, weekStartISO), JSON.stringify(next)).catch(() => {});
-  }, [userId, weekStartISO]);
+  // The other half of "two people in one shop": their ticks have to arrive without either
+  // of them leaving the screen and coming back (BACKLOG 15.9). The interval is cleared on
+  // blur, so a list left open in a background tab costs nothing.
+  useEffect(refreshTicks, [refreshTicks]);
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      refreshTicks();
+      timer ??= setInterval(refreshTicks, TICK_POLL_MS);
+    };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const unsubFocus = navigation.addListener('focus', start);
+    const unsubBlur = navigation.addListener('blur', stop);
+    if (navigation.isFocused()) start();
+    return () => { stop(); unsubFocus(); unsubBlur(); };
+  }, [navigation, refreshTicks]);
 
   // Ticking a line puts it in the pantry, unticking takes it back out (BACKLOG 7.2) — the
-  // only way a pantry stays accurate without data entry. The tick itself is applied
-  // immediately and never waits on the network: a failed write leaves the line ticked with
-  // no pantry row, which is the same state every tick had before 7.2.
+  // only way a pantry stays accurate without data entry. The pantry write is the server's
+  // now (15.9): with two shoppers, one write per device is one pantry row per device, and
+  // the first untick deletes a row the other still believes in.
+  //
+  // The tick is still applied immediately and never waits on the network — a shopper in an
+  // aisle needs the line to go grey now. A failed write is rolled back on the next poll
+  // rather than blocked on here.
   const toggle = (line: GroceryLine) => {
     const key = lineKey(line);
     const was = checked[key];
-    const next = { ...checked };
-    if (was) delete next[key]; else next[key] = true;
-    setChecked(next);
-    persistChecked(next);
+    setChecked(prev => {
+      const next = { ...prev };
+      if (was) delete next[key];
+      // The optimistic stand-in: ticked, no pantry row yet, and mine.
+      else next[key] = { line_key: key, mine: true };
+      return next;
+    });
+    pending.current.add(key);
+    const done = () => pending.current.delete(key);
 
     if (was) {
-      if (typeof was === 'number') apiService.deletePantryItem(was).catch(err => console.error('Error removing pantry item:', err));
+      apiService.untickGroceryLine(weekStartISO, key)
+        .catch(err => console.error('Error unticking grocery line:', err))
+        .finally(done);
       return;
     }
     // `need` and not `quantity`: the line was already reduced by what the kitchen holds
     // (BACKLOG 16.5), and the upsert REPLACES the pantry row's amount — storing the
     // shortfall would throw away the part you already had.
-    apiService.savePantryItem({
+    apiService.tickGroceryLine(weekStartISO, key, {
       name: line.item,
       quantity: line.need ?? line.quantity ?? null,
       unit: line.unit ?? null,
       category: PANTRY_SHELF[line.category] ?? 'spices_dry',
       expires_on: null,
     })
-      .then(item => setChecked(prev => {
-        // Only record the id if the line is still ticked — the user may have unticked it
-        // while the write was in flight, in which case it is already deleted.
+      .then(tick => setChecked(prev => {
+        // Only keep it if the line is still ticked — the user may have unticked it while
+        // the write was in flight, in which case the server has already dropped it.
         if (!prev[key]) return prev;
-        const withID = { ...prev, [key]: item.id };
-        persistChecked(withID);
-        return withID;
+        return { ...prev, [key]: tick };
       }))
-      .catch(err => console.error('Error adding pantry item:', err));
+      .catch(err => console.error('Error ticking grocery line:', err))
+      .finally(done);
   };
 
   // The server sorts by aisle already, so grouping is a single pass that keeps that order.
@@ -209,7 +243,8 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
             <View key={section.category} style={styles.section}>
               <Text variant="label" tone="subtle">{t(aisleLabelKey(section.category))}</Text>
               {section.lines.map(line => {
-                const isChecked = !!checked[lineKey(line)];
+                const tick = checked[lineKey(line)];
+                const isChecked = !!tick;
                 const amount = formatAmount(line);
                 const covers = pantryCovers(line);
                 return (
@@ -230,6 +265,8 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
                         {amount ? `${amount} · ` : ''}{line.item}{line.note ? ` (${line.note})` : ''}
                       </Text>
                       {covers && <Text variant="caption" tone="subtle">{t('grocery.inPantry', { have: covers, need: formatQuantity(line.need!, line.unit) })}</Text>}
+                      {/* Only ever shown in a household: a solo cook's ticks are all their own. */}
+                      {tick && !tick.mine && <Text variant="caption" tone="subtle">{t('grocery.byHousemate')}</Text>}
                       <Text variant="caption" tone="subtle">{t('grocery.forMeals', { meals: line.for.join(' · ') })}</Text>
                     </View>
                   </TouchableOpacity>

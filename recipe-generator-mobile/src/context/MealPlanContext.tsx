@@ -16,6 +16,11 @@ interface MealPlanContextValue {
   refreshRecipes: () => void;
   upsertItem: (item: MealPlanItem) => void;
   removeItem: (item: MealPlanItem) => void;
+  /** The share token of the week last passed to ensureRange, "" when it is not shared
+   *  (BACKLOG 13.2). One value, not a map: the planner shows one week at a time and
+   *  re-ensures on every week change. */
+  shareToken: string;
+  setShareToken: (token: string) => void;
 }
 
 const MealPlanContext = createContext<MealPlanContextValue | null>(null);
@@ -31,6 +36,7 @@ const sortBySlot = (items: MealPlanItem[]): MealPlanItem[] =>
 export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [itemsByDate, setItemsByDate] = useState<Record<string, MealPlanItem[]>>({});
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [shareToken, setShareToken] = useState('');
   const hydrated = useRef(false);
   // Resolved once per mount before anything touches AsyncStorage, so a stale cache read
   // under the wrong key (and thus another account's data) can never happen.
@@ -77,6 +83,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const ensureRange = useCallback((startISO: string, endISO: string) => {
     apiService.getMealPlanWeek(startISO, endISO).then(range => {
+      setShareToken(range.share_token ?? '');
       setItemsByDate(prev => {
         const next = { ...prev };
         // The API already returns the range sorted by date then slot, so grouping keeps
@@ -129,7 +136,7 @@ export const MealPlanProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [persistItems]);
 
   return (
-    <MealPlanContext.Provider value={{ itemsByDate, recipes, ensureRange, refreshRecipes, upsertItem, removeItem }}>
+    <MealPlanContext.Provider value={{ itemsByDate, recipes, ensureRange, refreshRecipes, upsertItem, removeItem, shareToken, setShareToken }}>
       {children}
     </MealPlanContext.Provider>
   );

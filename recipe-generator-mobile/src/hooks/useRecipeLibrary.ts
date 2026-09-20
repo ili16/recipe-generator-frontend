@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import apiService from '../services/apiService';
 import authService from '../services/authService';
 import { Collection, Recipe, RecipeDocument } from '../types';
@@ -7,6 +8,7 @@ import { useLanguage } from '../context/LanguageContext';
 import * as Clipboard from 'expo-clipboard';
 import { shareUrl } from '../constants';
 import { getCachedRecipes, setCachedRecipes } from '../utils/recipesCache';
+import { buildMarkdownExport, exportFilename } from '../utils/recipeExport';
 import type { VariantPreview } from '../screens/recipes/RecipePanels';
 
 // Everything RecipesScreen knows about the saved-recipe list: loading it, keeping the
@@ -198,11 +200,41 @@ export function useRecipeLibrary() {
       const token = await apiService.shareRecipe(recipe.id);
       applyRecipes(recipes.map(r => (r.id === recipe.id ? { ...r, share_token: token } : r)));
       const url = shareUrl(token);
-      await Clipboard.setStringAsync(url);
+      // BACKLOG 13.2 (1): what lands in the paste is the dish and the link, not a bare
+      // URL nobody can read before they tap it.
+      await Clipboard.setStringAsync(`${recipe.recipename}\n${url}`);
       showAlert(t('library.linkCopied'), url, 'success');
     } catch (error) {
       console.error('Error sharing recipe:', error);
       showAlert(t('common.error'), t('library.shareFailed'), 'error');
+    }
+  };
+
+  // BACKLOG 13.1 — data portability. The markdown is already on the client, so this
+  // never touches the API and a 500-recipe library costs one string join.
+  //
+  // ponytail: web gets a real file, native gets the clipboard. A file on native needs
+  // expo-file-system + expo-sharing; add them when someone asks for one.
+  const exportMarkdown = async (list: Recipe[]) => {
+    if (list.length === 0) return;
+    const markdown = buildMarkdownExport(list);
+    const filename = exportFilename(list, new Date());
+    try {
+      if (Platform.OS === 'web') {
+        const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        showAlert(t('library.exported'), t('library.exportedFile', { name: filename }), 'success');
+      } else {
+        await Clipboard.setStringAsync(markdown);
+        showAlert(t('library.exported'), t('library.exportedClipboard', { count: list.length }), 'success');
+      }
+    } catch (error) {
+      console.error('Error exporting recipes:', error);
+      showAlert(t('common.error'), t('library.exportFailed'), 'error');
     }
   };
 
@@ -330,7 +362,7 @@ export function useRecipeLibrary() {
     recipes, loading, refreshing, isAuthenticated,
     refresh: () => loadRecipes(true),
     refreshQuietly,
-    remove, vote, toggleShare, ensureStructured, saveEdit, setSwap, refine, generateVariant, acceptVariant, loadHistory,
+    remove, vote, toggleShare, exportMarkdown, ensureStructured, saveEdit, setSwap, refine, generateVariant, acceptVariant, loadHistory,
     trash, loadTrash, restore,
     collections, loadCollections, createCollection, removeCollection, setRecipeCollection,
   };

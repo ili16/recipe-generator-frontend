@@ -8,7 +8,9 @@ import { useTheme, Theme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useMealPlanContext } from '../../context/MealPlanContext';
+import * as Clipboard from 'expo-clipboard';
 import { toISODate, addDays, startOfWeek } from '../../utils/mealPlanDates';
+import { planShareUrl } from '../../constants';
 import { RootStackParamList } from '../../navigation/AppNavigator';
 import RecipePickerModal from './RecipePickerModal';
 import DayCard, { slotLabelKey } from './DayCard';
@@ -47,7 +49,7 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   const weekStartISO = toISODate(weekStart);
   const weekEndISO = toISODate(addDays(weekStart, 6));
 
-  const { itemsByDate, recipes, ensureRange, refreshRecipes, upsertItem, removeItem } = useMealPlanContext();
+  const { itemsByDate, recipes, ensureRange, refreshRecipes, upsertItem, removeItem, shareToken, setShareToken } = useMealPlanContext();
   // A sheet and a picker are both about one *slot* of one day since BACKLOG 6.4, so both
   // carry the slot they were opened for. The sheet holds the day+slot rather than the
   // PlannedMeal itself: a snapshot goes stale the moment the stepper writes, so the number
@@ -233,6 +235,30 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
   const dayOf = (iso: string) => days.find(d => d.iso === iso);
   const mealAt = (iso: string, slot: MealSlot) => dayOf(iso)?.meals.find(m => m.slot === slot);
 
+  // The week as a page anyone can read (BACKLOG 13.2). Share on: issue (or reuse) the
+  // token and put pasteable text on the clipboard. Share off: revoke, which kills the
+  // link everyone already has — the same contract a shared recipe has had since 8.4.
+  const toggleWeekShare = async () => {
+    try {
+      if (shareToken) {
+        if (!(await confirmAction(t('library.stopSharingTitle'), t('library.stopSharingBody'),
+          { confirmLabel: t('recipes.stopSharing'), destructive: true }))) return;
+        await apiService.unsharePlan(weekStartISO);
+        setShareToken('');
+        showAlert(t('library.linkRevoked'), t('library.linkRevokedBody'), 'success');
+        return;
+      }
+      const token = await apiService.sharePlan(weekStartISO, weekEndISO);
+      setShareToken(token);
+      const url = planShareUrl(token);
+      await Clipboard.setStringAsync(`${t('shared.planTitle')} ${weekStartISO} – ${weekEndISO}\n${url}`);
+      showAlert(t('plan.weekLinkCopied'), t('plan.shareWeekBody'), 'success');
+    } catch (error) {
+      console.error('Error sharing week:', error);
+      showAlert(t('common.error'), t('library.shareFailed'), 'error');
+    }
+  };
+
   // Re-derived from `days` on every render, so a write through upsertItem is visible in the
   // open sheet (BACKLOG 9.8).
   const sheetDay = sheetKey ? days.find(d => d.iso === sheetKey.iso) : undefined;
@@ -293,6 +319,14 @@ const WeekView: React.FC<Props> = ({ selectedDate, onChangeDate, navigation }) =
           fullWidth
           icon={<Ionicons name="sparkles" size={16} color={theme.text} />}
           onPress={() => askAssistant(`Plan my week starting ${weekStartISO}, using my saved recipes.`)}
+        />
+
+        <Button
+          title={t(shareToken ? 'plan.stopSharingWeek' : 'plan.shareWeek')}
+          variant="secondary"
+          fullWidth
+          icon={<Ionicons name={shareToken ? 'link' : 'link-outline'} size={16} color={theme.text} />}
+          onPress={toggleWeekShare}
         />
 
         <TouchableOpacity

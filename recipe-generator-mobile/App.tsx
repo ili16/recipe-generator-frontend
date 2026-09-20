@@ -10,12 +10,17 @@ import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
 import authService from './src/services/authService';
 import Loading from './src/components/Loading';
 import SharedRecipeScreen from './src/screens/SharedRecipeScreen';
+import SharedPlanScreen from './src/screens/SharedPlanScreen';
 
 // Web only: /s/<token> is a public, read-only recipe (BACKLOG 8.4). Read straight off
 // the URL rather than through the navigator — the shared view has no nav, no auth and
 // nothing else in the app links to it.
 const sharedToken =
   Platform.OS === 'web' ? window.location.pathname.match(/^\/s\/([\w-]+)$/)?.[1] : undefined;
+
+// Same deal for /p/<token>: a public, read-only week and its shopping list (BACKLOG 13.2).
+const sharedPlanToken =
+  Platform.OS === 'web' ? window.location.pathname.match(/^\/p\/([\w-]+)$/)?.[1] : undefined;
 
 // Web only: if we just landed back from Keycloak's redirect (see
 // authService.login), there's a `?code=&state=` pair to exchange for tokens
@@ -51,6 +56,15 @@ function Root() {
     return (
       <>
         <SharedRecipeScreen token={sharedToken} />
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+      </>
+    );
+  }
+
+  if (sharedPlanToken) {
+    return (
+      <>
+        <SharedPlanScreen token={sharedPlanToken} />
         <StatusBar style={isDark ? 'light' : 'dark'} />
       </>
     );

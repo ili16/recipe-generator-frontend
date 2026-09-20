@@ -12,6 +12,9 @@ export const APP_BASE_URL = __DEV__ && typeof window !== 'undefined'
 
 export const shareUrl = (token: string) => `${APP_BASE_URL}/s/${token}`;
 
+// The week's public page (BACKLOG 13.2) — same mechanism, different noun.
+export const planShareUrl = (token: string) => `${APP_BASE_URL}/p/${token}`;
+
 const KEYCLOAK_DEV_URL = 'https://sso.ili16.de';
 const KEYCLOAK_PROD_URL = 'https://sso.ili16.de';
 const KEYCLOAK_DEV_REALM = 'recipe-generator';
@@ -40,12 +43,15 @@ export const API_ENDPOINTS = {
   PREFERENCES: 'preferences',
   MEAL_PLAN: 'meal-plan',
   GROCERY_LIST: 'grocery-list',
+  GROCERY_TICKS: 'grocery-ticks',
   MEAL_PLAN_ITEMS: 'meal-plan/items',
   MEAL_PLAN_VARIANTS: 'meal-plan/variants',
   COLLECTIONS: 'collections',
   PANTRY: 'pantry',
   HOUSEHOLD: 'household',
   SHARED: 'shared',
+  SHARED_PLAN: 'shared-plan',
+  MEAL_PLAN_SHARE: 'meal-plan/share',
   FEEDBACK: 'feedback',
   USAGE: 'usage',
 } as const;
@@ -71,11 +77,6 @@ export const mealPlanCacheKeys = (userId: string) => ({
   items: `mealplan_cache_items_v2_${userId}`,
   recipes: `mealplan_cache_recipes_v1_${userId}`,
 });
-
-// Ticked-off grocery lines, per user and per week. The list itself is derived from the
-// plan on every load — only the ticks are worth keeping, and only on this device.
-export const groceryCheckedKey = (userId: string, weekStartISO: string) =>
-  `grocery_checked_v1_${userId}_${weekStartISO}`;
 
 // App Constants
 export const MAX_RECIPE_NAME_LENGTH = 25;

@@ -258,6 +258,8 @@ const en = {
     cook: 'Cook',
     stopSharing: 'Stop sharing',
     shareLink: 'Share link',
+    export: 'Export',
+    exportAll: 'Export all',
     refinePlaceholder: 'e.g. make it vegetarian, double the servings...',
     variantPlaceholder: 'Optional: steer the twist, e.g. make it Thai-style',
     thinking: 'Thinking…',
@@ -369,6 +371,10 @@ const en = {
     planMyWeek: 'Plan my week',
     rePlanWeek: 'Re-plan this week',
     planningPreferences: 'Planning preferences',
+    shareWeek: 'Share this week',
+    stopSharingWeek: 'Stop sharing this week',
+    weekLinkCopied: 'Week link copied',
+    shareWeekBody: 'Anyone with the link can read the week and its shopping list. No sign-in needed.',
     cookingFor: 'Cooking for',
     oneFewerServing: 'One fewer serving',
     oneMoreServing: 'One more serving',
@@ -418,6 +424,10 @@ const en = {
     linkRevokedBody: 'The shared link no longer works',
     linkCopied: 'Link copied',
     shareFailed: 'Failed to update sharing',
+    exported: 'Exported',
+    exportedFile: 'Saved as %{name}',
+    exportedClipboard: { one: '%{count} recipe copied as Markdown', other: '%{count} recipes copied as Markdown' },
+    exportFailed: 'Could not export those recipes',
     detailsFailed: 'Failed to load recipe details',
     swapFailed: 'Could not change that ingredient',
     saveFailed: 'Failed to save recipe',
@@ -447,6 +457,7 @@ const en = {
     openMealPlan: 'Open the meal plan',
     forMeals: 'For %{meals}',
     inPantry: 'You already have %{have} of %{need}',
+    byHousemate: 'Ticked by someone in your household',
   },
 
   // Households (BACKLOG 15.1). "Household" is the word the product uses for one shared
@@ -628,6 +639,13 @@ const en = {
   shared: {
     linkUnavailable: 'Link not available',
     loadingRecipe: 'Loading recipe...',
+    loadingPlan: 'Loading week...',
+    recipeGone: 'This recipe is no longer shared, or the link is wrong.',
+    planGone: 'This week is no longer shared, or the link is wrong.',
+    planTitle: 'The week',
+    planEmpty: 'Nothing is planned for this week yet.',
+    planGroceries: 'SHOPPING LIST',
+    fromApp: 'Shared from Recipe Generator',
   },
 
   origin: {

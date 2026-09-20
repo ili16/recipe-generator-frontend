@@ -25,6 +25,8 @@ interface Props {
   onDelete: () => void;
   /** Share on (copies the link) when unshared, revoke when shared — BACKLOG 8.4. */
   onToggleShare: () => void;
+  /** Export this one recipe as Markdown — BACKLOG 13.1. */
+  onExport: () => void;
   onVote: (vote: 1 | -1) => void;
   ensureStructured: (recipe: Recipe) => Promise<RecipeDocument | null>;
   /** Swap one ingredient for something the kitchen holds (BACKLOG 17.4c); '' undoes it. */
@@ -44,7 +46,7 @@ type Panel = 'none' | 'edit' | 'refine' | 'variant' | 'history' | 'collections';
 // One recipe in the library list: collapsed header, and when expanded the recipe plus
 // whichever of the four inline flows the user opened.
 const RecipeCard: React.FC<Props> = ({
-  recipe, expanded, variantOfName, variantCount = 0, onToggle, onCook, onDelete, onToggleShare, onVote,
+  recipe, expanded, variantOfName, variantCount = 0, onToggle, onCook, onDelete, onToggleShare, onExport, onVote,
   ensureStructured, onSwap, onSaveEdit, onRefine, onGenerateVariant, onAcceptVariant, onLoadHistory,
   collections, onToggleCollection, onCreateCollection,
 }) => {
@@ -334,6 +336,12 @@ const RecipeCard: React.FC<Props> = ({
                   <Text style={s.cookButtonText}>{recipe.share_token ? t('recipes.stopSharing') : t('recipes.shareLink')}</Text>
                 </TouchableOpacity>
                 )}
+                {/* Export is not owner-gated: a household recipe you can read is one
+                    you can take a copy of (BACKLOG 13.1). */}
+                <TouchableOpacity style={s.cookButton} onPress={onExport}>
+                  <Ionicons name="download-outline" size={14} color={theme.accent} style={{ marginRight: 6 }} />
+                  <Text style={s.cookButtonText}>{t('recipes.export')}</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={s.cookButton} onPress={() => onVote(1)}>
                   <Ionicons name={recipe.my_vote === 1 ? 'thumbs-up' : 'thumbs-up-outline'} size={14} color={theme.accent} />
                 </TouchableOpacity>

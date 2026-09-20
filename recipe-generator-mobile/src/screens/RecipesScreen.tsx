@@ -150,6 +150,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
         }}
         quickFilters={quickFilters}
         onToggleQuickFilter={toggleQuickFilter}
+        onExport={() => lib.exportMarkdown(visibleRecipes)}
         trashMode={trashMode}
         onToggleTrash={() => {
           setTrashMode(v => !v);
@@ -212,6 +213,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
                 }
               }}
               onToggleShare={() => lib.toggleShare(recipe)}
+              onExport={() => lib.exportMarkdown([recipe])}
               onVote={v => lib.vote(recipe, v)}
               ensureStructured={lib.ensureStructured}
               onSwap={(sortOrder, replacement) => lib.setSwap(recipe, sortOrder, replacement)}

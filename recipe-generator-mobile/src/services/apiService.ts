@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { API_BASE_URL, API_ENDPOINTS } from '../constants';
-import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload, Household, CookedResult, ConversationSummary, ConversationThread, Usage } from '../types';
+import { Recipe, RecipeDocument, RecipeResponse, PatchRecipePayload, GenerationOrigin, EditTurn, RecipeVersion, UserPreferences, MealPlanWeek, MealPlanItem, MealSlot, MealPlanSuggestion, GroceryList, GroceryTick, SharedPlan, ChatStreamEvent, ChatAttachment, Collection, PantryItem, FeedbackPayload, Household, CookedResult, ConversationSummary, ConversationThread, Usage } from '../types';
 import authService from './authService';
 import { currentLocale } from '../i18n';
 
@@ -519,6 +519,51 @@ class ApiService {
     const response = await this.client.get<GroceryList>(API_ENDPOINTS.GROCERY_LIST, {
       params: { starts_on: startsOn, ...(endsOn ? { ends_on: endsOn } : {}) },
     });
+    return response.data;
+  }
+
+  /* ── Ticked-off grocery lines (BACKLOG 15.9) ─────────────────────────────── */
+
+  // Ticks live on the server and not on the device because a household shops together:
+  // two people splitting one list have to see each other's ticks, or one of them buys the
+  // milk twice. For a solo cook this is the same state their device used to hold.
+  async getGroceryTicks(weekStartISO: string): Promise<GroceryTick[]> {
+    const response = await this.client.get<{ ticks: GroceryTick[] }>(API_ENDPOINTS.GROCERY_TICKS, {
+      params: { week_start: weekStartISO },
+    });
+    return response.data.ticks ?? [];
+  }
+
+  // The pantry write (BACKLOG 7.2) is the server's now, not the client's: two devices each
+  // writing their own pantry row is exactly the bug 15.9 exists to fix. Idempotent — a line
+  // somebody already ticked comes back with their tick, not a second one.
+  async tickGroceryLine(weekStartISO: string, lineKey: string, item: Omit<PantryItem, 'id'>): Promise<GroceryTick> {
+    const response = await this.client.post<GroceryTick>(API_ENDPOINTS.GROCERY_TICKS,
+      { line_key: lineKey, item },
+      { params: { week_start: weekStartISO } });
+    return response.data;
+  }
+
+  async untickGroceryLine(weekStartISO: string, lineKey: string): Promise<void> {
+    await this.client.delete(API_ENDPOINTS.GROCERY_TICKS, { params: { week_start: weekStartISO, line_key: lineKey } });
+  }
+
+  // The week's read-only link (BACKLOG 13.2). Idempotent: an already-shared week
+  // returns the token already sent, so a second tap never breaks a link.
+  async sharePlan(startsOn: string, endsOn?: string): Promise<string> {
+    const response = await this.client.post<{ share_token: string }>(API_ENDPOINTS.MEAL_PLAN_SHARE, null, {
+      params: { starts_on: startsOn, ...(endsOn ? { ends_on: endsOn } : {}) },
+    });
+    return response.data.share_token;
+  }
+
+  async unsharePlan(startsOn: string): Promise<void> {
+    await this.client.delete(API_ENDPOINTS.MEAL_PLAN_SHARE, { params: { starts_on: startsOn } });
+  }
+
+  // Unauthenticated on purpose — the token is the credential.
+  async getSharedPlan(token: string): Promise<SharedPlan> {
+    const response = await this.client.get<SharedPlan>(`${API_ENDPOINTS.SHARED_PLAN}/${token}`);
     return response.data;
   }
 

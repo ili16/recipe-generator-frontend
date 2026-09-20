@@ -253,6 +253,8 @@ const de: typeof en = {
     cook: 'Kochen',
     stopSharing: 'Teilen beenden',
     shareLink: 'Link teilen',
+    export: 'Exportieren',
+    exportAll: 'Alle exportieren',
     refinePlaceholder: 'z. B. vegetarisch machen, Portionen verdoppeln...',
     variantPlaceholder: 'Optional: gib die Richtung vor, z. B. thailändisch',
     thinking: 'Denkt nach…',
@@ -362,6 +364,10 @@ const de: typeof en = {
     planMyWeek: 'Meine Woche planen',
     rePlanWeek: 'Woche neu planen',
     planningPreferences: 'Planungseinstellungen',
+    shareWeek: 'Diese Woche teilen',
+    stopSharingWeek: 'Teilen dieser Woche beenden',
+    weekLinkCopied: 'Wochen-Link kopiert',
+    shareWeekBody: 'Wer den Link hat, kann die Woche und die Einkaufsliste lesen. Ohne Anmeldung.',
     cookingFor: 'Kochen für',
     oneFewerServing: 'Eine Portion weniger',
     oneMoreServing: 'Eine Portion mehr',
@@ -411,6 +417,10 @@ const de: typeof en = {
     linkRevokedBody: 'Der geteilte Link funktioniert nicht mehr',
     linkCopied: 'Link kopiert',
     shareFailed: 'Teilen konnte nicht aktualisiert werden',
+    exported: 'Exportiert',
+    exportedFile: 'Als %{name} gespeichert',
+    exportedClipboard: { one: '%{count} Rezept als Markdown kopiert', other: '%{count} Rezepte als Markdown kopiert' },
+    exportFailed: 'Diese Rezepte konnten nicht exportiert werden',
     detailsFailed: 'Rezeptdetails konnten nicht geladen werden',
     swapFailed: 'Zutat konnte nicht ersetzt werden',
     saveFailed: 'Rezept konnte nicht gespeichert werden',
@@ -440,6 +450,7 @@ const de: typeof en = {
     openMealPlan: 'Wochenplan öffnen',
     forMeals: 'Für %{meals}',
     inPantry: 'Du hast schon %{have} von %{need}',
+    byHousemate: 'Von jemandem in deinem Haushalt abgehakt',
   },
 
   // Households (BACKLOG 15.1). "Haushalt" ist das Produktwort fuer eine geteilte Kueche;
@@ -615,6 +626,13 @@ const de: typeof en = {
   shared: {
     linkUnavailable: 'Link nicht verfügbar',
     loadingRecipe: 'Rezept wird geladen...',
+    loadingPlan: 'Woche wird geladen...',
+    recipeGone: 'Dieses Rezept wird nicht mehr geteilt oder der Link ist falsch.',
+    planGone: 'Diese Woche wird nicht mehr geteilt oder der Link ist falsch.',
+    planTitle: 'Die Woche',
+    planEmpty: 'Für diese Woche ist noch nichts geplant.',
+    planGroceries: 'EINKAUFSLISTE',
+    fromApp: 'Geteilt aus Recipe Generator',
   },
 
   origin: {

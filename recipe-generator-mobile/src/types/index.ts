@@ -326,10 +326,30 @@ export interface GroceryList {
   lines: GroceryLine[];
 }
 
+/**
+ * One ticked-off shopping line, shared across the household (BACKLOG 15.9). `line_key` is
+ * the item|unit identity the list is keyed on; `pantry_item_id` is the pantry row the tick
+ * created, and `mine` is false for a housemate's tick — which is how a shopper tells their
+ * own from the ones that appeared while they were in the aisle. `mine` is resolved on the
+ * server because the client authenticates with an OIDC subject and never sees its row id.
+ */
+export interface GroceryTick {
+  line_key: string;
+  pantry_item_id?: number;
+  mine: boolean;
+}
+
 export interface MealPlanWeek {
   starts_on: string; // YYYY-MM-DD
   ends_on: string; // YYYY-MM-DD
   items: MealPlanItem[];
+  // The week's read-only link token, "" when it is not shared (BACKLOG 13.2).
+  share_token?: string;
+}
+
+// What a /p/<token> visitor sees: the week and what it needs, nothing owner-only.
+export interface SharedPlan extends MealPlanWeek {
+  lines: GroceryLine[];
 }
 
 // One proposed day in an AI-suggested meal plan (POST /meal-plan/suggest,

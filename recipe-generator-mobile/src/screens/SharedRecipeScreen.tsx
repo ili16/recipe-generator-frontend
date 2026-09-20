@@ -26,7 +26,7 @@ const SharedRecipeScreen: React.FC<{ token: string }> = ({ token }) => {
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
         <UIText variant="title">{t('shared.linkUnavailable')}</UIText>
         <UIText tone="muted" style={styles.sub}>
-          This recipe is no longer shared, or the link is wrong.
+          {t('shared.recipeGone')}
         </UIText>
       </View>
     );
@@ -39,7 +39,7 @@ const SharedRecipeScreen: React.FC<{ token: string }> = ({ token }) => {
       <UIText variant="title">{recipe.recipename}</UIText>
       <RecipeView structured={recipe.structured} markdown={recipe.recipe} scalable />
       <UIText variant="caption" tone="muted" style={styles.sub}>
-        Shared from Recipe Generator
+        {t('shared.fromApp')}
       </UIText>
     </ScrollView>
   );

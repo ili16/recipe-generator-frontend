@@ -26,10 +26,12 @@ interface Props {
   onDeleteCollection: (collection: Collection) => void;
   quickFilters: Set<QuickFilter>;
   onToggleQuickFilter: (filter: QuickFilter) => void;
+  /** Export everything currently listed as one Markdown file — BACKLOG 13.1. */
+  onExport: () => void;
 }
 
 const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onToggleTag, sortMode, onToggleSort, trashMode, onToggleTrash,
-  collections, activeCollectionId, onSelectCollection, onDeleteCollection, quickFilters, onToggleQuickFilter }) => {
+  collections, activeCollectionId, onSelectCollection, onDeleteCollection, quickFilters, onToggleQuickFilter, onExport }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const s = useMemo(() => makeSharedStyles(theme), [theme]);
@@ -59,6 +61,11 @@ const RecipeToolbar: React.FC<Props> = ({ search, onSearch, selectedTags, onTogg
             </TouchableOpacity>
             <TouchableOpacity style={styles.sortToggle} onPress={onToggleSort}>
               <Text style={styles.sortToggleText}>{sortMode === 'recent' ? t('recipes.sortRecent') : t('recipes.sortAlpha')}</Text>
+            </TouchableOpacity>
+            {/* Exports what is on screen, not the whole table: the filters above are
+                how you choose what to take with you (BACKLOG 13.1). */}
+            <TouchableOpacity style={styles.sortToggle} onPress={onExport}>
+              <Text style={styles.sortToggleText}>{t('recipes.exportAll')}</Text>
             </TouchableOpacity>
           </>
         )}
