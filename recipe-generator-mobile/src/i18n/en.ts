@@ -558,6 +558,7 @@ const en = {
     refining: 'Refining your recipe...',
     refiningHint: 'AI is incorporating your cooking notes',
     youWillNeed: "You'll need",
+    timerDone: 'Time’s up',
     optional: '(optional)',
     handsFreeListening: 'Say “next”, “back” or “repeat”',
     handsFreeReading: 'Reading each step aloud · tap the step to hear it again',

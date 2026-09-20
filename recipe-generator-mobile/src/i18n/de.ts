@@ -545,6 +545,7 @@ const de: typeof en = {
     refining: 'Dein Rezept wird verfeinert...',
     refiningHint: 'Die KI arbeitet deine Kochnotizen ein',
     youWillNeed: 'Du brauchst',
+    timerDone: 'Zeit ist um',
     optional: '(optional)',
     handsFreeListening: 'Sag „weiter“, „zurück“ oder „wiederholen“',
     handsFreeReading: 'Jeder Schritt wird vorgelesen · tippe den Schritt an, um ihn nochmal zu hören',

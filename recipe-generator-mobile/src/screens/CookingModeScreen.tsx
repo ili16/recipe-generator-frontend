@@ -75,10 +75,7 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
         servings={s.servings}
         onServingsChange={s.setServings}
         onClose={() => navigation.goBack()}
-        onStart={() => {
-          s.setCurrentGroup(0);
-          s.setPhase('cooking');
-        }}
+        onStart={s.startCooking}
       />
     );
   }
@@ -92,6 +89,11 @@ const CookingModeScreen: React.FC<Props> = ({ navigation, route }) => {
       currentGroup={s.currentGroup}
       noteIndex={s.noteIndex}
       notes={s.notes}
+      checked={s.checked}
+      onToggleChecked={s.toggleChecked}
+      timers={s.timers}
+      now={s.now}
+      onToggleTimer={s.toggleTimer}
       onSaveNote={s.setNote}
       onClose={() => s.setPhase('overview')}
       onPrev={s.prev}

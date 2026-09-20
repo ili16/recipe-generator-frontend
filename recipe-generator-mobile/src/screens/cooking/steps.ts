@@ -82,19 +82,29 @@ export function phaseSummary(groups: StepGroup[]): Array<{ phase: CookPhase; gro
     .filter(p => p.groups > 0);
 }
 
-// Match ingredients mentioned in a step — use DB-provided indices if available, fall back to text matching.
-export function getStepIngredients(step: Step, allIngredients: Ingredient[]): Ingredient[] {
+// Which of the recipe's ingredients a step uses — as INDICES into `allIngredients`, not
+// copies: cooking mode ticks them off (BACKLOG 12.1) and a tick has to mean "this one",
+// the same ingredient wherever else it shows up. Use DB-provided indices if available,
+// fall back to text matching.
+export function getStepIngredientIndices(step: Step, allIngredients: Ingredient[]): number[] {
   if (step.ingredient_indices && step.ingredient_indices.length > 0) {
-    return step.ingredient_indices
-      .filter(i => i >= 0 && i < allIngredients.length)
-      .map(i => allIngredients[i]);
+    return step.ingredient_indices.filter(i => i >= 0 && i < allIngredients.length);
   }
   // Fallback for recipes without DB-backed indices.
   const lower = step.step_text.toLowerCase();
-  return allIngredients.filter(ing => {
+  return allIngredients.flatMap((ing, i) => {
     const words = ing.item.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !/^\d/.test(w));
-    return words.length > 0 && words.some(w => lower.includes(w));
+    return words.length > 0 && words.some(w => lower.includes(w)) ? [i] : [];
   });
+}
+
+// A running timer counts in mm:ss and never in "3 min" — a cook watching the last thirty
+// seconds of a sear needs the seconds (BACKLOG 12.3). `formatTimer` below is the resting
+// label, this is the live one.
+export function formatCountdown(msLeft: number): string {
+  const total = Math.max(0, Math.ceil(msLeft / 1000));
+  const m = Math.floor(total / 60);
+  return `${m}:${String(total % 60).padStart(2, '0')}`;
 }
 
 export function formatTimer(seconds: number): string {

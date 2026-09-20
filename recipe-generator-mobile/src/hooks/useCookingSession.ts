@@ -24,6 +24,26 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
   // overview's RecipeView unmounts the moment cooking starts, and a number held there
   // would reset behind the cook's back. Nothing is written; this scales what is shown.
   const [servings, setServings] = useState<number | null>(null);
+  // Ingredients ticked off while cooking (BACKLOG 12.1), keyed by index into
+  // `ingredients` so a tick follows the ingredient across every step that uses it.
+  // Session-only on purpose: what you have already put in the pan is not a fact about
+  // the recipe, and it is worthless the next time you cook it.
+  const [checked, setChecked] = useState<Record<number, boolean>>({});
+  // Running step timers (BACKLOG 12.3), step index -> the wall-clock ms it ends at. An
+  // end time rather than a remaining count is what makes a timer survive backgrounding:
+  // the interval below stops when the app sleeps, and the number is still right on wake
+  // because it was never the thing counting.
+  // ponytail: no alert fires while the app is backgrounded — expo-notifications came out
+  // in 9.5 and nothing else has needed it since. Reinstall it if a burnt pan proves it.
+  const [timers, setTimers] = useState<Record<number, number>>({});
+  const [now, setNow] = useState(() => Date.now());
+
+  // One interval for every running timer, and none at all when nothing runs.
+  useEffect(() => {
+    if (Object.keys(timers).length === 0) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [timers]);
 
   useEffect(() => {
     if (initialRecipe.structured) return;
@@ -73,6 +93,31 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
   };
 
   const prev = () => setCurrentGroup(p => (p > 0 ? p - 1 : p));
+
+  const toggleChecked = (i: number) => setChecked(prev => ({ ...prev, [i]: !prev[i] }));
+
+  // Tap a duration to start it, tap it again to clear it. Several can run at once —
+  // which is the ordinary case since 12.0, where a card holds two tracks.
+  const toggleTimer = (stepIndex: number, seconds: number) => {
+    const started = Date.now();
+    setNow(started);
+    setTimers(prev => {
+      if (prev[stepIndex] != null) {
+        const { [stepIndex]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [stepIndex]: started + seconds * 1000 };
+    });
+  };
+
+  // Starting a cook is the one moment the ticks are meaningless — a second run through
+  // the same recipe begins with an empty board, even without leaving the screen.
+  const startCooking = () => {
+    setChecked({});
+    setTimers({});
+    setCurrentGroup(0);
+    setPhase('cooking');
+  };
 
   // Every AI call this cooking run makes — the refine below and each "Ask AI" question —
   // is a turn in one agent thread, so a question can follow up on the last answer and the
@@ -198,6 +243,8 @@ export function useCookingSession(initialRecipe: Recipe, onSaved: () => void) {
   return {
     recipe, structured, steps, ingredients, groups, group,
     servings, setServings,
+    checked, toggleChecked, startCooking,
+    timers, now, toggleTimer,
     phase, setPhase, currentGroup, setCurrentGroup, noteIndex, refineOrigin,
     notes, setNote, next, prev,
     ask, refine, planFlow, refinedRecipe, saveRefined, saving,

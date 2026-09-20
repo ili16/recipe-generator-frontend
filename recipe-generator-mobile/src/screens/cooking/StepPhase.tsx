@@ -10,7 +10,8 @@ import { type } from '../../theme';
 import { fmtIngredient, scaleIngredient } from '../../utils/recipeIngredient';
 import { Badge } from '../../components/ui';
 import {
-  Ingredient, phaseLabelKey, StepGroup, formatTimer, getStepIngredients, groupSpokenText,
+  Ingredient, phaseLabelKey, StepGroup, formatCountdown, formatTimer, getStepIngredientIndices,
+  groupSpokenText,
 } from './steps';
 import { makeChromeStyles } from './styles';
 import { AskAiPanel, NotePanel, SavedNote } from './StepPanels';
@@ -26,6 +27,13 @@ interface Props {
   /** Original step index this card's notes are keyed on. */
   noteIndex: number;
   notes: Record<number, string>;
+  /** Ingredients ticked off this cook, keyed by index into `ingredients`. */
+  checked: Record<number, boolean>;
+  onToggleChecked: (index: number) => void;
+  /** Running timers (BACKLOG 12.3): step index -> the wall-clock ms it ends at. */
+  timers: Record<number, number>;
+  now: number;
+  onToggleTimer: (stepIndex: number, seconds: number) => void;
   onSaveNote: (idx: number, text: string) => void;
   onClose: () => void;
   onPrev: () => void;
@@ -36,8 +44,8 @@ interface Props {
 // One card of cooking at a time — a single step, or the several a cook does at once —
 // with the two panels that hang off it: a note the user takes, and a question to the AI.
 const StepPhase: React.FC<Props> = ({
-  recipe, groups, ingredients, scale, currentGroup, noteIndex, notes,
-  onSaveNote, onClose, onPrev, onNext, onAsk,
+  recipe, groups, ingredients, scale, currentGroup, noteIndex, notes, checked, onToggleChecked,
+  timers, now, onToggleTimer, onSaveNote, onClose, onPrev, onNext, onAsk,
 }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
@@ -48,6 +56,16 @@ const StepPhase: React.FC<Props> = ({
   const [noteInput, setNoteInput] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [showAiInput, setShowAiInput] = useState(false);
+
+  // A duration reads as itself until it is started, then counts down in mm:ss, then says
+  // so. One label for both places a duration appears — the card's heading and a parallel
+  // track's badge — because they are the same clock.
+  const timerLabel = (stepIndex: number, seconds: number) => {
+    const endsAt = timers[stepIndex];
+    if (endsAt == null) return `⏱ ${formatTimer(seconds)}`;
+    const left = endsAt - now;
+    return left <= 0 ? `⏰ ${t('cooking.timerDone')}` : `⏱ ${formatCountdown(left)}`;
+  };
 
   const group = groups[currentGroup];
   const parallel = (group?.steps.length ?? 0) > 1;
@@ -113,7 +131,17 @@ const StepPhase: React.FC<Props> = ({
               <Text style={styles.stepLabel}>
                 {group.phase ? t(phaseLabelKey(group.phase)) : t('cooking.stepNumber', { number: currentGroup + 1 })}
               </Text>
-              {group.timerSeconds != null && group.timerSeconds > 0 && (
+              {/* Tap the duration to run it (BACKLOG 12.3). Only on a single-step card:
+                  a parallel block's heading is the longest track, and each track below
+                  starts its own. */}
+              {group.timerSeconds != null && group.timerSeconds > 0 && !parallel && (
+                <TouchableOpacity onPress={() => onToggleTimer(group.indices[0], group.timerSeconds!)}>
+                  <Text style={[styles.cardTimer, timers[group.indices[0]] != null && styles.cardTimerRunning]}>
+                    {timerLabel(group.indices[0], group.timerSeconds)}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {group.timerSeconds != null && group.timerSeconds > 0 && parallel && (
                 <Text style={styles.cardTimer}>⏱ {formatTimer(group.timerSeconds)}</Text>
               )}
             </View>
@@ -123,7 +151,7 @@ const StepPhase: React.FC<Props> = ({
             {parallel && <Text style={styles.parallelLabel}>{t('cooking.atTheSameTimeShort')}</Text>}
 
             {group.steps.map((step, i) => {
-              const stepIngredients = getStepIngredients(step, ingredients);
+              const stepIngredients = getStepIngredientIndices(step, ingredients);
               return (
                 <View
                   key={step.sort_order}
@@ -141,7 +169,9 @@ const StepPhase: React.FC<Props> = ({
                   {((parallel && (step.timer_seconds ?? 0) > 0) || (step.temperature_c ?? 0) > 0) && (
                     <View style={styles.badgeRow}>
                       {parallel && step.timer_seconds != null && step.timer_seconds > 0 && (
-                        <Badge label={`⏱ ${formatTimer(step.timer_seconds)}`} />
+                        <TouchableOpacity onPress={() => onToggleTimer(group.indices[i], step.timer_seconds!)}>
+                          <Badge label={timerLabel(group.indices[i], step.timer_seconds)} />
+                        </TouchableOpacity>
                       )}
                       {step.temperature_c != null && step.temperature_c > 0 && (
                         <Badge label={`🌡️ ${step.temperature_c}°C`} />
@@ -153,13 +183,27 @@ const StepPhase: React.FC<Props> = ({
                     <View style={styles.stepIngSection}>
                       <Text style={styles.stepIngLabel}>{t('cooking.youWillNeed')}</Text>
                       <View style={styles.stepIngChips}>
-                        {stepIngredients.map((ing, j) => (
-                          <Badge
-                            key={j}
-                            tone="neutral"
-                            label={`${fmtIngredient(scaleIngredient(ing, scale), scale !== 1)}${ing.optional ? ` ${t('cooking.optional')}` : ''}`}
-                          />
-                        ))}
+                        {/* Tap to cross one off (BACKLOG 12.1). The chip stays put and
+                            keeps its text — a cook glancing back needs to read what they
+                            already added, not find it gone. */}
+                        {stepIngredients.map(idx => {
+                          const ing = ingredients[idx];
+                          const done = !!checked[idx];
+                          return (
+                            <TouchableOpacity
+                              key={idx}
+                              onPress={() => onToggleChecked(idx)}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: done }}
+                              style={done && styles.chipChecked}
+                            >
+                              <Badge
+                                tone="neutral"
+                                label={`${done ? '✓ ' : ''}${fmtIngredient(scaleIngredient(ing, scale), scale !== 1)}${ing.optional ? ` ${t('cooking.optional')}` : ''}`}
+                              />
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
                     </View>
                   )}
@@ -288,6 +332,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     ...type.label, fontSize: 13,
     color: t.muted,
   },
+  cardTimerRunning: {
+    color: t.accent,
+  },
   parallelLabel: {
     ...type.body, fontSize: 14,
     color: t.subtext,
@@ -349,6 +396,10 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: 'uppercase',
     marginBottom: 8,
+  },
+  // Ticked off: dimmed rather than removed, so the list you read is still the list.
+  chipChecked: {
+    opacity: 0.4,
   },
   stepIngChips: {
     flexDirection: 'row',

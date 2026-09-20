@@ -13,7 +13,7 @@
  */
 import { strict as assert } from 'assert';
 import type { CookPhase } from '../../types';
-import { groupSteps, groupSpokenText, phaseSummary, Step } from './steps';
+import { formatCountdown, getStepIngredientIndices, groupSteps, groupSpokenText, phaseSummary, Ingredient, Step } from './steps';
 
 type Spec = { phase?: CookPhase; group?: number; timer?: number };
 
@@ -104,7 +104,26 @@ export function check(): void {
   assert.equal(summary[0].seconds, 720); // 600 (the block) + 120, not 1020
   assert.deepEqual(phaseSummary(l), []); // no phases at all → nothing to summarise
 
-  console.log('steps: all 9 checks pass');
+  // 10. Step ingredients come back as indices into the recipe's list — what a tick in
+  // cooking mode is keyed on. DB indices win and out-of-range ones are dropped; with
+  // none, the text fallback matches on words longer than three characters.
+  const ings = [
+    { item: 'onion', quantity: 1, unit: null },
+    { item: 'olive oil', quantity: 2, unit: 'tbsp' },
+  ] as unknown as Ingredient[];
+  const fromDb = { ...step('Anything at all'), ingredient_indices: [1, 9] } as Step;
+  assert.deepEqual(getStepIngredientIndices(fromDb, ings), [1]);
+  assert.deepEqual(getStepIngredientIndices(step('Dice the onion'), ings), [0]);
+  assert.deepEqual(getStepIngredientIndices(step('Rest the meat'), ings), []);
+
+  // 11. The live countdown: mm:ss, zero-padded seconds, clamped at zero rather than
+  // counting into negative time when the tick lands late.
+  assert.equal(formatCountdown(600_000), '10:00');
+  assert.equal(formatCountdown(65_000), '1:05');
+  assert.equal(formatCountdown(1), '0:01');
+  assert.equal(formatCountdown(-5_000), '0:00');
+
+  console.log('steps: all 11 checks pass');
 }
 
 check();
