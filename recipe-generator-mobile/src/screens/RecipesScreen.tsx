@@ -214,6 +214,7 @@ const RecipesScreen: React.FC<Props> = ({ navigation }) => {
               onToggleShare={() => lib.toggleShare(recipe)}
               onVote={v => lib.vote(recipe, v)}
               ensureStructured={lib.ensureStructured}
+              onSwap={(sortOrder, replacement) => lib.setSwap(recipe, sortOrder, replacement)}
               onSaveEdit={doc => lib.saveEdit(recipe.id, doc)}
               onRefine={prompt => lib.refine(recipe, prompt)}
               onGenerateVariant={hint => lib.generateVariant(recipe, hint)}

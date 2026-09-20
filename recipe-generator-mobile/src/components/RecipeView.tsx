@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Theme, useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
 import { type, space, radius } from '../theme';
-import { Badge } from './ui';
+import { Badge, Sheet, SheetRow } from './ui';
 import { RecipeDocument } from '../types';
 import { totalTimeMinutes } from '../utils/recipeTime';
 import { fmtIngredient, scaleIngredient, servingScale, Ingredient } from '../utils/recipeIngredient';
@@ -50,9 +50,14 @@ interface Props {
   // draft. A scaler there invites "did it scale, or did the model rewrite the amounts?"
   // -- a question this component should never make a reader ask.
   scalable?: boolean;
+  // Swapping one ingredient for another the kitchen actually holds (BACKLOG 17.4c).
+  // Opt-in and saved-recipes-only: a draft has no id to file a swap under, and a shared
+  // recipe is somebody else's kitchen. sortOrder is the line's 1-based position, and an
+  // empty replacement means "as written".
+  onSwap?: (sortOrder: number, replacement: string) => void;
 }
 
-const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true, servings, onServingsChange, scalable = false }) => {
+const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true, servings, onServingsChange, scalable = false, onSwap }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -60,6 +65,8 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true, s
   // Hold the number, derive the lines — never the other way round (the 9.8 rule). The
   // scaled ingredients are recomputed on every render from one scalar.
   const [ownServings, setOwnServings] = useState<number | null>(null);
+  // Which line's swap sheet is open, null for none.
+  const [swapping, setSwapping] = useState<{ sortOrder: number; ing: Ingredient } | null>(null);
   const baseServings = structured?.servings ?? null;
   const wanted = servings ?? ownServings ?? baseServings;
   const setWanted = (n: number) => {
@@ -91,12 +98,14 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true, s
 
   // Group ingredients by their optional section label, preserving first-seen order;
   // recipes with no sections fall into a single unlabeled group.
-  const sections = new Map<string, Ingredient[]>();
-  for (const ing of structured!.ingredients) {
+  // sortOrder rides along because the grouping below loses the line's position in the
+  // recipe, and that position is the key a swap is filed under.
+  const sections = new Map<string, Array<{ ing: Ingredient; sortOrder: number }>>();
+  structured!.ingredients.forEach((ing, i) => {
     const key = ing.section ?? '';
     if (!sections.has(key)) sections.set(key, []);
-    sections.get(key)!.push(ing);
-  }
+    sections.get(key)!.push({ ing, sortOrder: i + 1 });
+  });
 
   return (
     <View>
@@ -167,19 +176,68 @@ const RecipeView: React.FC<Props> = ({ structured, markdown, showSteps = true, s
           {[...sections.entries()].map(([section, items]) => (
             <View key={section || '__default'}>
               {section !== '' && <Text style={styles.subsectionLabel}>{section}</Text>}
-              {items.map((ing, idx) => (
-                <View key={idx} style={styles.ingRow}>
-                  <View style={styles.ingBullet} />
-                  <Text style={styles.ingText}>
-                    {fmtIngredient(scaleIngredient(ing, scale), scale !== 1)}
-                    {ing.optional ? <Text style={styles.optLabel}>  optional</Text> : null}
-                  </Text>
-                </View>
-              ))}
+              {items.map(({ ing, sortOrder }, idx) => {
+                // A line is tappable only when there is something to tap for: a swap
+                // already in place to undo, or something in the kitchen to swap to.
+                const swappable = !!onSwap && (!!ing.swapped_from || (ing.swap_options?.length ?? 0) > 0);
+                const line = (
+                  <>
+                    <View style={styles.ingBullet} />
+                    <Text style={styles.ingText}>
+                      {fmtIngredient(scaleIngredient(ing, scale), scale !== 1)}
+                      {ing.optional ? <Text style={styles.optLabel}>  optional</Text> : null}
+                      {ing.swapped_from ? (
+                        <Text style={styles.optLabel}>  {t('recipes.swappedFor', { item: ing.swapped_from })}</Text>
+                      ) : null}
+                    </Text>
+                    {swappable && <Ionicons name="swap-horizontal" size={14} color={theme.subtext} />}
+                  </>
+                );
+                if (!swappable) return <View key={idx} style={styles.ingRow}>{line}</View>;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.ingRow}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('recipes.swapThis')}
+                    onPress={() => setSwapping({ sortOrder, ing })}
+                  >
+                    {line}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           ))}
         </View>
       )}
+
+      {/* One sheet for the whole list: the options are the kitchen's, and "as written"
+          is always there because undoing a swap must be as easy as making one. */}
+      <Sheet
+        visible={swapping !== null}
+        onClose={() => setSwapping(null)}
+        title={swapping ? t('recipes.swapTitle', { item: swapping.ing.swapped_from ?? swapping.ing.item }) : undefined}
+      >
+        {(swapping?.ing.swap_options ?? []).map(option => (
+          <SheetRow
+            key={option}
+            label={option}
+            onPress={() => {
+              onSwap?.(swapping!.sortOrder, option);
+              setSwapping(null);
+            }}
+          />
+        ))}
+        {swapping?.ing.swapped_from ? (
+          <SheetRow
+            label={t('recipes.swapAsWritten', { item: swapping.ing.swapped_from })}
+            onPress={() => {
+              onSwap?.(swapping.sortOrder, '');
+              setSwapping(null);
+            }}
+          />
+        ) : null}
+      </Sheet>
 
       {showSteps && structured!.steps.length > 0 && (
         <View style={styles.section}>

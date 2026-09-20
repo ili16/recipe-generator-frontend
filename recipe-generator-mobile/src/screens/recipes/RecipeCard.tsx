@@ -27,6 +27,8 @@ interface Props {
   onToggleShare: () => void;
   onVote: (vote: 1 | -1) => void;
   ensureStructured: (recipe: Recipe) => Promise<RecipeDocument | null>;
+  /** Swap one ingredient for something the kitchen holds (BACKLOG 17.4c); '' undoes it. */
+  onSwap: (sortOrder: number, replacement: string) => void;
   onSaveEdit: (doc: RecipeDocument) => Promise<boolean>;
   onRefine: (prompt: string) => Promise<boolean>;
   onGenerateVariant: (hint: string) => Promise<VariantPreview | null>;
@@ -43,7 +45,7 @@ type Panel = 'none' | 'edit' | 'refine' | 'variant' | 'history' | 'collections';
 // whichever of the four inline flows the user opened.
 const RecipeCard: React.FC<Props> = ({
   recipe, expanded, variantOfName, variantCount = 0, onToggle, onCook, onDelete, onToggleShare, onVote,
-  ensureStructured, onSaveEdit, onRefine, onGenerateVariant, onAcceptVariant, onLoadHistory,
+  ensureStructured, onSwap, onSaveEdit, onRefine, onGenerateVariant, onAcceptVariant, onLoadHistory,
   collections, onToggleCollection, onCreateCollection,
 }) => {
   const { theme } = useTheme();
@@ -248,7 +250,7 @@ const RecipeCard: React.FC<Props> = ({
               )}
 
               <ScrollView style={styles.recipeContentScroll} nestedScrollEnabled>
-                <RecipeView structured={recipe.structured} markdown={recipe.recipe} scalable />
+                <RecipeView structured={recipe.structured} markdown={recipe.recipe} scalable onSwap={onSwap} />
               </ScrollView>
 
               {panel === 'refine' && <RefinePanel loading={refineLoading} onApply={runRefine} />}

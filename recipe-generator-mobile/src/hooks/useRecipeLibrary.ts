@@ -219,6 +219,21 @@ export function useRecipeLibrary() {
     }
   };
 
+  // A swap is the cook's, not the recipe's (BACKLOG 17.4c): nothing about the saved
+  // recipe changes, so the card is refreshed from the server rather than patched here —
+  // the swapped line comes back with its amount already converted by weight.
+  const setSwap = async (recipe: Recipe, sortOrder: number, replacement: string): Promise<boolean> => {
+    try {
+      await apiService.setIngredientSwap(recipe.id, sortOrder, replacement);
+      const full = await apiService.getRecipeById(recipe.id);
+      applyRecipes(recipes.map(r => (r.id === recipe.id ? full : r)));
+      return true;
+    } catch {
+      showAlert(t('common.error'), t('library.swapFailed'), 'error');
+      return false;
+    }
+  };
+
   const saveEdit = async (id: number, doc: RecipeDocument): Promise<boolean> => {
     try {
       const updated = await apiService.patchRecipe({ id, structured: doc });
@@ -315,7 +330,7 @@ export function useRecipeLibrary() {
     recipes, loading, refreshing, isAuthenticated,
     refresh: () => loadRecipes(true),
     refreshQuietly,
-    remove, vote, toggleShare, ensureStructured, saveEdit, refine, generateVariant, acceptVariant, loadHistory,
+    remove, vote, toggleShare, ensureStructured, saveEdit, setSwap, refine, generateVariant, acceptVariant, loadHistory,
     trash, loadTrash, restore,
     collections, loadCollections, createCollection, removeCollection, setRecipeCollection,
   };

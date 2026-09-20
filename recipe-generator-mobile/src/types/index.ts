@@ -98,6 +98,15 @@ export interface RecipeDocument {
     // scaler can turn "1.5 onions" into something a cook can act on. Absent means
     // nothing knows, and the scaler must then show the bare number.
     grams_per_unit?: number | null;
+    // The cook's own substitution on this line (BACKLOG 17.4c). `swapped_from` is what
+    // the recipe actually says and is present only on a swapped line — `item` then
+    // already carries the replacement, with the amount converted by weight.
+    // `swap_options` is what their kitchen holds that could stand in here.
+    //
+    // Both are read-only: a swap belongs to the cook, not the recipe, so neither may be
+    // sent back on a save.
+    swapped_from?: string | null;
+    swap_options?: string[] | null;
   }>;
   steps: Array<{
     sort_order: number;

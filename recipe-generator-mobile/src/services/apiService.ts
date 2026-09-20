@@ -382,6 +382,13 @@ class ApiService {
     return response.data;
   }
 
+  // What the cook uses instead on one ingredient line (BACKLOG 17.4c). An empty
+  // replacement clears the swap — one call both ways, so the caller toggles rather than
+  // choosing a verb. sortOrder is the line's 1-based position in the recipe.
+  async setIngredientSwap(recipeId: number, sortOrder: number, replacement: string): Promise<void> {
+    await this.client.put(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/swaps/${sortOrder}`, { replacement });
+  }
+
   async getRecipeHistory(recipeId: number): Promise<RecipeVersion[]> {
     const response = await this.client.get<RecipeVersion[]>(`${API_ENDPOINTS.GET_RECIPE}/${recipeId}/history`);
     return response.data;
