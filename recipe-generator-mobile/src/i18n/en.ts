@@ -228,6 +228,7 @@ const en = {
     aSavedRecipe: 'a saved recipe',
     pantryReady: 'Pantry ready (%{count})',
     pantryPartial: '%{have}/%{total} in pantry',
+    pantrySwap: { one: '%{have}/%{total} in pantry, +%{count} with a swap', other: '%{have}/%{total} in pantry, +%{count} with a swap' },
     shared: 'Shared',
     ownedBy: "%{name}'s",
     variantCount: { one: '%{count} variant', other: '%{count} variants' },

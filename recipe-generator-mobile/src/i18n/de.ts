@@ -223,6 +223,7 @@ const de: typeof en = {
     aSavedRecipe: 'einem gespeicherten Rezept',
     pantryReady: 'Alles im Vorrat (%{count})',
     pantryPartial: '%{have}/%{total} im Vorrat',
+    pantrySwap: { one: '%{have}/%{total} im Vorrat, +%{count} mit Ersatz', other: '%{have}/%{total} im Vorrat, +%{count} mit Ersatz' },
     shared: 'Geteilt',
     ownedBy: 'von %{name}',
     variantCount: { one: '%{count} Variante', other: '%{count} Varianten' },

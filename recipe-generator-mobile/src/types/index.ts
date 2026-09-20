@@ -25,6 +25,10 @@ export interface Recipe {
   // counts. Both 0 — or absent, on a payload from before 7.3 — means no badge.
   pantry_have?: number;
   pantry_total?: number;
+  // Ingredients the pantry could cover with a swap — same class, different food, e.g.
+  // penne for spaghetti (BACKLOG 17.4a). Never added to pantry_have: the swap is the
+  // cook's call. Absent on any payload from before 17.4a.
+  pantry_close?: number;
   // A household's shared library (BACKLOG 15.3). A recipe is personal property lent to
   // the household: everyone can open, cook and plan it, only the owner can rewrite it.
   // `owned_by_me` is false only for another member's recipe — outside a household every

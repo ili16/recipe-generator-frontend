@@ -68,6 +68,7 @@ const RecipeCard: React.FC<Props> = ({
   const mine = recipe.owned_by_me !== false;
   const pantryHave = recipe.pantry_have ?? 0;
   const pantryTotal = recipe.pantry_total ?? 0;
+  const pantryClose = recipe.pantry_close ?? 0;
   const mealType = mealTypeSlug(recipe.tags);
   const totalMinutes = totalTimeMinutes(recipe);
 
@@ -175,7 +176,11 @@ const RecipeCard: React.FC<Props> = ({
                 <Badge
                   label={pantryHave === pantryTotal
                     ? t('recipes.pantryReady', { count: pantryTotal })
-                    : t('recipes.pantryPartial', { have: pantryHave, total: pantryTotal })}
+                    : pantryClose > 0
+                      // BACKLOG 17.4a: a swap is offered, never counted — the badge says
+                      // what the pantry holds and what it could stand in for, separately.
+                      ? t('recipes.pantrySwap', { have: pantryHave, total: pantryTotal, count: pantryClose })
+                      : t('recipes.pantryPartial', { have: pantryHave, total: pantryTotal })}
                   icon={<Ionicons name="file-tray-stacked-outline" size={11} color={theme.accent} />}
                 />
               )}
