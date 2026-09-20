@@ -41,6 +41,16 @@ export function check(): void {
     { key: 'set_preferences', values: { fields: 'dietary_prefs, household_size' } }
   );
 
+  // A scanned shelf is approved by reading the items back, so a nameless or malformed
+  // line must not silently pad the count the user is agreeing to.
+  assert.deepEqual(
+    describeApproval(approval('add_pantry_items', '{"items":[{"name":"milk"},{"name":"eggs"},{"name":"  "},{},7]}')),
+    { key: 'add_pantry_items', values: { count: 2, items: 'milk, eggs' } }
+  );
+  assert.deepEqual(describeApproval(approval('add_pantry_items', '{}')), {
+    key: 'add_pantry_items', values: { count: 0, items: '' },
+  });
+
   // Unreadable or surprising arguments must still produce a card with buttons — falling
   // through to a crash would strand the turn with no way to approve or decline it.
   assert.deepEqual(describeApproval(approval('apply_week_plan', 'not json')), {

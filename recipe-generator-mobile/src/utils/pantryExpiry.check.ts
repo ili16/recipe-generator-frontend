@@ -11,7 +11,7 @@
  * Nothing imports this file, so it never reaches a bundle; `npx tsc --noEmit` still typechecks it.
  */
 import { strict as assert } from 'assert';
-import { daysUntil, expiryLabel, USE_FIRST_DAYS } from './pantryExpiry';
+import { daysUntil, expiryLabel, stockCheckDue, USE_FIRST_DAYS, STOCK_CHECK_DAYS } from './pantryExpiry';
 
 const iso = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -46,6 +46,15 @@ export function check(): void {
   assert.equal(expiryLabel(0, key), 'pantry.today');
   assert.equal(expiryLabel(1, key), 'pantry.tomorrow');
   assert.equal(expiryLabel(4, key), 'pantry.inDays');
+
+  // The stock check dates a timestamp, not a calendar day: 27 days is still trusted.
+  const now = new Date(2026, 8, 20, 12, 0);
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 86400000).toISOString();
+  assert.equal(stockCheckDue(daysAgo(27), now), false, 'inside the window');
+  assert.equal(stockCheckDue(daysAgo(STOCK_CHECK_DAYS), now), true, 'at the window');
+  assert.equal(stockCheckDue(daysAgo(60), now), true, 'well past it');
+  assert.equal(stockCheckDue(undefined, now), false, 'no timestamp, no nag');
+  assert.equal(stockCheckDue('not a date', now), false, 'unparseable, no nag');
 
   console.log('pantryExpiry.check: all assertions passed');
 }

@@ -42,6 +42,16 @@ export const describeApproval = (approval: ChatApproval): ApprovalSummary => {
       : { key: 'clear_plan_day', values: { date } };
   }
 
+  if (approval.name === 'add_pantry_items') {
+    // The parsed photo *is* the argument list (BACKLOG.md 17.5), so naming the items
+    // here is what makes the approval a review rather than a yes/no on a tool name.
+    const items = Array.isArray(args.items) ? args.items : [];
+    const names = items
+      .map((i) => (i !== null && typeof i === 'object' ? (i as Record<string, unknown>).name : undefined))
+      .filter((n): n is string => typeof n === 'string' && n.trim() !== '');
+    return { key: 'add_pantry_items', values: { count: names.length, items: names.join(', ') } };
+  }
+
   if (approval.name === 'set_preferences') {
     const patch = args.patch !== null && typeof args.patch === 'object' ? args.patch : {};
     return { key: 'set_preferences', values: { fields: Object.keys(patch).join(', ') } };

@@ -292,6 +292,12 @@ export interface PantryItem {
   // pantry match, which is the point of marking one; what it stops is the grocery list
   // shopping for it and a cooked meal deducting it.
   staple?: boolean;
+  // "I am nearly out of this." The only thing that ever changes about a staple, and what
+  // puts it back on the grocery list (BACKLOG 16.6).
+  running_low?: boolean;
+  // When the user last said this line is still true (ISO timestamp). A staple that has
+  // gone STOCK_CHECK_DAYS unconfirmed is what the Pantry screen's stock check asks about.
+  confirmed_at?: string;
 }
 
 // The shopping aisles a grocery line groups under, mirroring model.GroceryCategories.

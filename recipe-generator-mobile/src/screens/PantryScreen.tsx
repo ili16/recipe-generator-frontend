@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -7,11 +7,11 @@ import apiService from '../services/apiService';
 import { PantryCategory, PantryItem } from '../types';
 import { useTheme, Theme } from '../context/ThemeContext';
 import { space, radius } from '../theme';
-import { Text, Button, Chip, Badge, SignInRequired } from '../components/ui';
+import { Text, Button, Chip, Badge, SignInRequired, Sheet, SheetRow } from '../components/ui';
 import { useEscapeBack } from '../hooks/useEscapeBack';
 import { useIsAuthenticated } from '../hooks/useIsAuthenticated';
 import { useLanguage } from '../context/LanguageContext';
-import { daysUntil, expiryLabel, USE_FIRST_DAYS } from '../utils/pantryExpiry';
+import { daysUntil, expiryLabel, stockCheckDue, USE_FIRST_DAYS } from '../utils/pantryExpiry';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Pantry'>;
 
@@ -52,6 +52,10 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
   const [expiresOn, setExpiresOn] = useState('');
   const [category, setCategory] = useState<PantryCategory>('fridge');
   const [staple, setStaple] = useState(false);
+  // The row whose options are open. One sheet serves both tiers: the verbs differ, the
+  // component does not (BACKLOG 16.6).
+  const [sheetItem, setSheetItem] = useState<PantryItem | null>(null);
+  const scroller = useRef<ScrollView>(null);
   const { theme } = useTheme();
   const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -97,6 +101,7 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const remove = async (item: PantryItem) => {
+    setSheetItem(null);
     setItems(prev => (prev ?? []).filter(i => i.id !== item.id));
     try {
       await apiService.deletePantryItem(item.id);
@@ -106,10 +111,43 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
+  // The only thing that ever changes about a standing fact. Optimistic, because the tap
+  // has to feel like flipping a switch; either answer also confirms the line, which is
+  // what takes it out of the stock check.
+  const setStock = async (item: PantryItem, running_low: boolean) => {
+    setSheetItem(null);
+    setItems(prev => (prev ?? []).map(i =>
+      i.id === item.id ? { ...i, running_low, confirmed_at: new Date().toISOString() } : i));
+    try {
+      const saved = await apiService.setPantryStock(item.id, running_low);
+      setItems(prev => (prev ?? []).map(i => (i.id === saved.id ? saved : i)));
+    } catch (err) {
+      console.error('Error updating pantry stock:', err);
+      load();
+    }
+  };
+
+  // Editing is the add card with the row's values in it: name and unit are the row's
+  // identity, so saving replaces the line rather than making a second one. No second
+  // form to keep in step with the first.
+  const edit = (item: PantryItem) => {
+    setSheetItem(null);
+    setName(item.name);
+    setQuantity(item.quantity != null ? String(item.quantity) : '');
+    setUnit(item.unit ?? '');
+    setExpiresOn(item.expires_on ?? '');
+    setCategory(item.category);
+    setStaple(!!item.staple);
+    scroller.current?.scrollTo({ y: 0, animated: true });
+  };
+
   // Both groups are derived, not stored — same reasoning as "Use first" above. A staple
   // is an ordinary row on an ordinary shelf; what marks it out is one flag.
   const staples = (items ?? []).filter(i => i.staple);
   const useFirst = (items ?? []).filter(i => !i.staple && i.expires_on != null && daysUntil(i.expires_on) <= USE_FIRST_DAYS);
+  // A staple nobody has confirmed in four weeks. It keeps counting for the recipe match
+  // while it waits — the card asks, it does not retract a fact the user never withdrew.
+  const stale = staples.filter(i => stockCheckDue(i.confirmed_at));
 
   // The starter set, offered once and only while there are none. Names are localized
   // because the normalised name is the join key: a German recipe asks for "salz", and an
@@ -153,7 +191,20 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.list}>
+    <ScrollView ref={scroller} style={styles.container} contentContainerStyle={styles.list}>
+      {stale.length > 0 && (
+        <View style={styles.section}>
+          <Text variant="label" tone="subtle">{t('pantry.stockCheckTitle', { count: stale.length })}</Text>
+          {stale.map(item => (
+            <View key={item.id} style={styles.itemRow}>
+              <Text style={styles.flex}>{item.name}</Text>
+              <Button title={t('pantry.haveIt')} variant="secondary" size="sm" onPress={() => setStock(item, false)} />
+              <Button title={t('pantry.runningLow')} variant="secondary" size="sm" onPress={() => setStock(item, true)} />
+            </View>
+          ))}
+        </View>
+      )}
+
       <View style={styles.addCard}>
         <Text variant="label" tone="subtle">{t('pantry.addItem')}</Text>
         <TextInput
@@ -232,14 +283,30 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
           <Text variant="label" tone="subtle">{t('pantry.staples')}</Text>
           {staples.map(item => (
             <View key={item.id} style={styles.itemRow}>
-              <Text style={styles.flex}>{item.name}</Text>
+              {/* One tap flips the only thing that ever changes. Everything rarer —
+                  renaming it, taking it off the list — is one tap deeper, in the sheet. */}
               <TouchableOpacity
-                onPress={() => remove(item)}
+                style={styles.stockRow}
+                onPress={() => setStock(item, !item.running_low)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: !item.running_low }}
+                accessibilityLabel={item.name}
+              >
+                <Ionicons
+                  name={item.running_low ? 'alert-circle-outline' : 'checkmark-circle'}
+                  size={20}
+                  color={item.running_low ? theme.accent : theme.muted}
+                />
+                <Text style={styles.flex}>{item.name}</Text>
+                {item.running_low && <Badge label={t('pantry.low')} tone="accent" />}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setSheetItem(item)}
                 accessibilityRole="button"
-                accessibilityLabel={t('pantry.removeItem', { name: item.name })}
+                accessibilityLabel={t('pantry.itemActions', { name: item.name })}
                 style={styles.removeButton}
               >
-                <Ionicons name="close" size={18} color={theme.muted} />
+                <Ionicons name="ellipsis-horizontal" size={18} color={theme.muted} />
               </TouchableOpacity>
             </View>
           ))}
@@ -277,31 +344,53 @@ const PantryScreen: React.FC<Props> = ({ navigation }) => {
                 const days = item.expires_on != null ? daysUntil(item.expires_on) : null;
                 const amount = amountLabel(item);
                 return (
-                  <View key={item.id} style={styles.itemRow}>
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.itemRow}
+                    onPress={() => setSheetItem(item)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('pantry.itemActions', { name: item.name })}
+                  >
                     <View style={styles.flex}>
                       <Text>{amount ? `${amount} · ` : ''}{item.name}</Text>
                     </View>
+                    {item.running_low && <Badge label={t('pantry.low')} tone="accent" />}
                     {days !== null && (
                       <Badge
                         label={expiryLabel(days, t)}
                         tone={days <= USE_FIRST_DAYS ? 'accent' : 'neutral'}
                       />
                     )}
-                    <TouchableOpacity
-                      onPress={() => remove(item)}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('pantry.removeItem', { name: item.name })}
-                      style={styles.removeButton}
-                    >
-                      <Ionicons name="close" size={18} color={theme.muted} />
-                    </TouchableOpacity>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
           );
         })
       )}
+
+      {/* The verbs a row actually has. "Used it up" and "Remove" both clear the line;
+          they are two different things in the user's head, which is the whole reason the
+          `×` had to go. */}
+      <Sheet visible={sheetItem !== null} onClose={() => setSheetItem(null)} title={sheetItem?.name}>
+        {sheetItem && !sheetItem.staple && (
+          <SheetRow label={t('pantry.usedItUp')} onPress={() => remove(sheetItem)} />
+        )}
+        {sheetItem && (
+          <SheetRow
+            label={sheetItem.running_low ? t('pantry.haveIt') : t('pantry.runningLow')}
+            onPress={() => setStock(sheetItem, !sheetItem.running_low)}
+          />
+        )}
+        {sheetItem && <SheetRow label={t('common.edit')} onPress={() => edit(sheetItem)} />}
+        {sheetItem && (
+          <SheetRow
+            label={t('pantry.removeItem', { name: sheetItem.name })}
+            destructive
+            onPress={() => remove(sheetItem)}
+          />
+        )}
+      </Sheet>
     </ScrollView>
   );
 };
@@ -323,6 +412,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   section: { gap: space.sm },
   stapleRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.xs },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.xs },
+  stockRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.xs },
   removeButton: { padding: space.xs },
 });
 

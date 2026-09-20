@@ -13,6 +13,7 @@ import { addCachedRecipe, getCachedRecipes } from '../utils/recipesCache';
 import { useAlert } from '../context/AlertContext';
 import { useLanguage } from '../context/LanguageContext';
 import { currentLocale } from '../i18n';
+import en from '../i18n/en';
 import { parseISODate } from '../utils/mealPlanDates';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -30,13 +31,10 @@ import { FeedbackPulse } from '../components/FeedbackPulse';
 // with the agent picking the action. Everything structured the turn produced arrives as an
 // artifact and renders through the shared RecipeView — no second recipe renderer here.
 
-// The tools we have words for, under `chat.tool.*`. A tool added server-side is not in the
-// catalog and falls back to its own name — readable, rather than nothing.
-const NAMED_TOOLS = new Set([
-  'generate_recipe', 'transform_recipe', 'search_my_recipes', 'meal_history', 'get_recipe', 'save_recipe',
-  'plan_week', 'set_plan_day', 'clear_plan_day', 'get_preferences', 'set_preferences', 'note_preference',
-  'fetch_url', 'answer_cooking_question',
-]);
+// The tools we have words for, taken straight from the catalog so the two cannot drift: a
+// tool added server-side simply has no `chat.tool.*` key and falls back to its own name —
+// readable, rather than nothing.
+const NAMED_TOOLS = new Set(Object.keys(en.chat.tool));
 
 // Server error codes we have words for, under `chat.error.*`.
 const NAMED_ERRORS = new Set([

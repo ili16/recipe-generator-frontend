@@ -8,6 +8,23 @@
 export const USE_FIRST_DAYS = 3;
 
 /**
+ * How long a standing fact is taken on trust before the Pantry screen asks again
+ * (BACKLOG 16.6). A constant and not a setting: nobody wants to tune this, and a staple
+ * nobody has confirmed in a month is exactly what the stock check is for.
+ */
+export const STOCK_CHECK_DAYS = 28;
+
+/**
+ * Whether a staple confirmed at `confirmedAt` (an ISO timestamp from the server) is due
+ * a "still enough?" question. Unparseable or missing means no — the card nags only on a
+ * fact it can actually date.
+ */
+export const stockCheckDue = (confirmedAt: string | undefined, now: Date = new Date()): boolean => {
+  const at = confirmedAt ? new Date(confirmedAt).getTime() : NaN;
+  return Number.isFinite(at) && now.getTime() - at >= STOCK_CHECK_DAYS * 86400000;
+};
+
+/**
  * Whole days from today to `iso` (YYYY-MM-DD): 0 is today, negative is already expired.
  *
  * Both sides are pinned to local midnight before subtracting — an item due tomorrow must

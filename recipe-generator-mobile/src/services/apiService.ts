@@ -318,6 +318,13 @@ class ApiService {
     return response.data;
   }
 
+  /** "Still enough?" for one line — BACKLOG 16.6. Either answer confirms the line. */
+  async setPantryStock(itemId: number, runningLow: boolean): Promise<PantryItem> {
+    const response = await this.client.patch<PantryItem>(
+      `${API_ENDPOINTS.PANTRY}/${itemId}/stock`, { running_low: runningLow });
+    return response.data;
+  }
+
   async deletePantryItem(itemId: number): Promise<void> {
     await this.client.delete(`${API_ENDPOINTS.PANTRY}/${itemId}`);
   }
