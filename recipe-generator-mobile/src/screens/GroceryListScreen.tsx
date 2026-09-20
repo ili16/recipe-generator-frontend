@@ -39,12 +39,25 @@ const PANTRY_SHELF: Record<GroceryCategory, PantryCategory> = {
 const lineKey = (line: GroceryLine) => `${line.item.toLowerCase()}|${line.unit ?? ''}`;
 
 // "500 g", "2", "" — trailing zeroes dropped, and nothing at all when the amount is only
-// a note ("to taste"), which renders separately.
+// a note ("to taste"), which renders separately. A line the pantry covers entirely has a
+// quantity of 0 and renders as no amount at all: the caption below it says why.
 const formatAmount = (line: GroceryLine): string => {
-  if (line.quantity == null) return '';
-  const n = Math.round(line.quantity * 100) / 100;
-  return line.unit ? `${n} ${line.unit}` : `${n}`;
+  if (line.quantity == null || line.quantity === 0) return '';
+  return formatQuantity(line.quantity, line.unit);
 };
+
+const formatQuantity = (quantity: number, unit?: string | null): string => {
+  const n = Math.round(quantity * 100) / 100;
+  return unit ? `${n} ${unit}` : `${n}`;
+};
+
+// What the pantry takes off this line (BACKLOG 16.5), or null when it takes nothing. The
+// server sends `need` only when it actually reduced the line, so this never renders
+// "you have 0 of 3".
+const pantryCovers = (line: GroceryLine): string | null =>
+  line.need != null && line.quantity != null && line.need > line.quantity
+    ? formatQuantity(line.need - line.quantity, line.unit)
+    : null;
 
 /**
  * The week's shopping list (BACKLOG 6.1). Derived, never stored: every load re-aggregates the
@@ -116,9 +129,12 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
       if (typeof was === 'number') apiService.deletePantryItem(was).catch(err => console.error('Error removing pantry item:', err));
       return;
     }
+    // `need` and not `quantity`: the line was already reduced by what the kitchen holds
+    // (BACKLOG 16.5), and the upsert REPLACES the pantry row's amount — storing the
+    // shortfall would throw away the part you already had.
     apiService.savePantryItem({
       name: line.item,
-      quantity: line.quantity ?? null,
+      quantity: line.need ?? line.quantity ?? null,
       unit: line.unit ?? null,
       category: PANTRY_SHELF[line.category] ?? 'spices_dry',
       expires_on: null,
@@ -195,6 +211,7 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
               {section.lines.map(line => {
                 const isChecked = !!checked[lineKey(line)];
                 const amount = formatAmount(line);
+                const covers = pantryCovers(line);
                 return (
                   <TouchableOpacity
                     key={lineKey(line)}
@@ -212,6 +229,7 @@ const GroceryListScreen: React.FC<Props> = ({ navigation }) => {
                       <Text style={isChecked ? styles.struck : undefined}>
                         {amount ? `${amount} · ` : ''}{line.item}{line.note ? ` (${line.note})` : ''}
                       </Text>
+                      {covers && <Text variant="caption" tone="subtle">{t('grocery.inPantry', { have: covers, need: formatQuantity(line.need!, line.unit) })}</Text>}
                       <Text variant="caption" tone="subtle">{t('grocery.forMeals', { meals: line.for.join(' · ') })}</Text>
                     </View>
                   </TouchableOpacity>

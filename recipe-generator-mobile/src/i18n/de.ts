@@ -439,6 +439,7 @@ const de: typeof en = {
     empty: 'Diese Woche ist nichts geplant — plane Mahlzeiten, dann landen ihre Zutaten hier.',
     openMealPlan: 'Wochenplan öffnen',
     forMeals: 'Für %{meals}',
+    inPantry: 'Du hast schon %{have} von %{need}',
   },
 
   // Households (BACKLOG 15.1). "Haushalt" ist das Produktwort fuer eine geteilte Kueche;

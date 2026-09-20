@@ -446,6 +446,7 @@ const en = {
     empty: 'Nothing planned this week — plan some meals and their ingredients land here.',
     openMealPlan: 'Open the meal plan',
     forMeals: 'For %{meals}',
+    inPantry: 'You already have %{have} of %{need}',
   },
 
   // Households (BACKLOG 15.1). "Household" is the word the product uses for one shared

@@ -313,6 +313,11 @@ export interface GroceryLine {
   unit?: string | null;
   note?: string;
   for: string[];
+  // The week's full demand, sent only when the pantry already covers part of it
+  // (BACKLOG 16.5). `quantity` is then the shortfall and `need - quantity` is what the
+  // kitchen holds. Ticking the line stores `need`, not `quantity`: after the trip you
+  // hold what the week asked for, not only what you carried home.
+  need?: number | null;
 }
 
 export interface GroceryList {
